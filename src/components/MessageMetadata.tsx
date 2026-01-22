@@ -20,18 +20,18 @@ export const MessageMetadata = ({ modelName, toolCalls, wordCount }: { modelName
   const time = (tokens / 60).toFixed(1); // Rough estimate
   
   return (
-    <div className="flex items-center gap-3 ml-4 select-none group/meta">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 ml-0 md:ml-4 select-none group/meta mt-1">
        {/* Model Name */}
        <MetadataChip 
          label={modelName} 
          color="text-fuchsia-700 font-bold uppercase tracking-wider"
        />
        
-       {/* Separator */}
-       <div className="h-2.5 w-[1.5px] bg-fuchsia-200/60" />
+       {/* Separator - Hidden on very small screens if wrapping occurs */}
+       <div className="hidden sm:block h-2.5 w-[1.5px] bg-fuchsia-200/60 shrink-0" />
 
        {/* Metrics */}
-       <div className="flex items-center gap-3.5">
+       <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
         <MetadataChip 
             icon={<Zap size={11.5} />}
             label={`${(tokens/1.2).toFixed(1)} tok/s`}
