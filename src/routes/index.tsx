@@ -10,14 +10,14 @@ function App() {
   const chatInputRef = useRef<ChatInputHandle>(null)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background relative">
+    <div className="flex h-dvh min-h-screen overflow-hidden bg-background relative">
       <div className="edge-glow-top" />
       <div className="edge-glow-bottom" />
       <div className="bg-noise" />
-      
+
       <Sidebar />
-      
-      <main className="flex-1 relative flex flex-col items-center justify-center p-4 z-20">
+
+      <main className="flex-1 relative flex flex-col items-center justify-center p-4 z-20 overflow-hidden">
         <LandingHero onSelectPrompt={(text) => chatInputRef.current?.setContentAndSend(text)} />
         <ChatInput ref={chatInputRef} />
       </main>

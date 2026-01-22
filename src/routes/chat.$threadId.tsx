@@ -220,7 +220,7 @@ function ChatPage() {
   const isEmpty = messages !== undefined && messages.length === 0
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background relative text-foreground">
+    <div className="flex h-dvh min-h-screen overflow-hidden bg-background relative text-foreground">
       <div className="edge-glow-top" />
       <div className="edge-glow-bottom" />
       <div className="bg-noise" />

@@ -12,22 +12,36 @@ export const Route = createRootRoute({
       },
       {
         name: 'viewport',
-        content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0',
+        content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover',
       },
       {
         title: 'T3.chat Replica',
       },
       {
+        name: 'description',
+        content: 'AI chat application',
+      },
+      {
         name: 'theme-color',
         content: '#f2e1f4',
       },
+      // Android Chrome PWA
       {
         name: 'mobile-web-app-capable',
+        content: 'yes',
+      },
+      // iOS Safari PWA
+      {
+        name: 'apple-mobile-web-app-capable',
         content: 'yes',
       },
       {
         name: 'apple-mobile-web-app-status-bar-style',
         content: 'default',
+      },
+      {
+        name: 'apple-mobile-web-app-title',
+        content: 'T3.chat',
       },
     ],
     links: [
@@ -42,6 +56,21 @@ export const Route = createRootRoute({
       {
         rel: 'icon',
         href: '/favicon.ico',
+      },
+      // Apple touch icons
+      {
+        rel: 'apple-touch-icon',
+        href: '/logo192.png',
+      },
+      {
+        rel: 'apple-touch-icon',
+        sizes: '192x192',
+        href: '/logo192.png',
+      },
+      {
+        rel: 'apple-touch-icon',
+        sizes: '512x512',
+        href: '/logo512.png',
       },
     ],
   }),

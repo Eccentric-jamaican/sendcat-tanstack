@@ -31,20 +31,20 @@ export const LandingHero = ({ onSelectPrompt }: LandingHeroProps) => {
       </h1>
 
       {/* Action Cards: Pill-shaped, T3 Lavender Oklab transition */}
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="flex justify-center gap-2 overflow-x-auto scrollbar-hide px-2">
         {[
-          { icon: <Sparkles size={18} />, label: "Create" },
-          { icon: <Compass size={18} />, label: "Explore" },
-          { icon: <Code2 size={18} />, label: "Code" },
-          { icon: <GraduationCap size={18} />, label: "Learn" }
+          { icon: <Sparkles size={16} />, label: "Create" },
+          { icon: <Compass size={16} />, label: "Explore" },
+          { icon: <Code2 size={16} />, label: "Code" },
+          { icon: <GraduationCap size={16} />, label: "Learn" }
         ].map((item, i) => (
           <motion.button
             key={i}
             whileHover={{ backgroundColor: "rgba(242, 225, 244, 0.6)" }}
-            className="flex items-center gap-2 px-6 py-2 glass-card rounded-full transition-all border border-black/5 shadow-sm group"
+            className="flex items-center gap-1.5 px-4 py-2 glass-card rounded-full transition-all border border-black/5 shadow-sm group shrink-0"
           >
             <span className="text-t3-berry-deep opacity-90">{item.icon}</span>
-            <span className="text-[14px] font-semibold text-foreground/80">{item.label}</span>
+            <span className="text-[13px] font-semibold text-foreground/80">{item.label}</span>
           </motion.button>
         ))}
       </div>

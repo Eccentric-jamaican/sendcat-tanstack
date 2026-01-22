@@ -370,26 +370,26 @@ export const Sidebar = () => {
 
       {/* Sidebar Toggle & Mini-Header (Fixed) */}
       <div className={cn(
-        "fixed top-4 left-4 z-[110] transition-all duration-300 flex items-center gap-2",
-        !isOpen && "bg-transparent"
+        "fixed top-4 left-4 z-[110] transition-all duration-300 flex items-center gap-1",
+        !isOpen && "px-2 py-1.5 rounded-xl bg-background/70 backdrop-blur-sm border border-black/5 shadow-sm"
       )}>
-        <button 
+        <button
           onClick={() => setIsOpen(!isOpen)}
           className="p-1.5 rounded-lg hover:bg-black/5 transition-all text-foreground/60 focus:outline-none"
         >
           <PanelLeft size={18} />
         </button>
         {!isOpen && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, x: -5 }}
             animate={{ opacity: 1, x: 0 }}
-            className="flex items-center gap-2"
+            className="flex items-center gap-1"
           >
-            <span className="text-sm font-bold text-foreground[-2] ml-1 hidden md:inline">T3.chat</span>
-            <button className="p-1.5 rounded-lg hover:bg-black/5 text-foreground/40">
+            <span className="text-sm font-bold text-foreground/80 ml-1 hidden md:inline">T3.chat</span>
+            <button className="p-1.5 rounded-lg hover:bg-black/10 text-foreground/50 transition-colors">
               <Search size={18} />
             </button>
-            <button className="p-1.5 rounded-lg hover:bg-black/5 text-foreground/40" onClick={handleNewChat}>
+            <button className="p-1.5 rounded-lg hover:bg-black/10 text-foreground/50 transition-colors" onClick={handleNewChat}>
               <Plus size={18} />
             </button>
           </motion.div>
@@ -505,8 +505,8 @@ export const Sidebar = () => {
       </motion.aside>
 
       {/* Settings Action (Fixed Top Right) */}
-      <div className="fixed top-4 right-4 z-[100]">
-        <button className="p-1.5 rounded-lg hover:bg-black/5 transition-all text-foreground/40">
+      <div className="fixed top-4 right-4 z-[100] px-2 py-1.5 rounded-xl bg-background/70 backdrop-blur-sm border border-black/5 shadow-sm">
+        <button className="p-1.5 rounded-lg hover:bg-black/10 transition-colors text-foreground/50">
           <Settings size={18} />
         </button>
       </div>
