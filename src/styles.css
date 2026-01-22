@@ -1,0 +1,209 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Poppins:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #a23b67;
+  --color-background: #f2e1f4;
+  --color-foreground: #501854;
+  
+  /* Exact T3.chat Colors & Spaces */
+  --color-t3-lavender: oklab(0.87 0.06 -0.03);
+  --color-t3-berry-light: oklab(0.7 0.15 -0.05);
+  --color-t3-berry: oklab(0.55 0.16 -0.08);
+  --color-t3-berry-deep: oklab(0.44 0.11 -0.08);
+  
+  --color-t3-banner-bg: rgb(254, 235, 231);
+  --color-t3-banner-text: rgb(80, 24, 84);
+
+  /* Animation Tokens */
+  --animate-in: animate-in 0.2s ease-out;
+  --animate-out: animate-out 0.15s ease-in;
+  --animate-pulse-slow: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(0.98);
+  }
+}
+
+@layer components {
+  /* Sophisticated Reflective Border */
+  .border-reflect {
+    position: relative;
+    background: hsla(270, 0%, 100%, 0.1);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+  }
+
+  /* The 1px Glowing Edge using Mask-Composite */
+  .border-reflect::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1px; /* The border width */
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(80, 24, 84, 0.05), rgba(80, 24, 84, 0.1), rgba(80, 24, 84, 0.05));
+    -webkit-mask: 
+      linear-gradient(#fff 0 0) content-box, 
+      linear-gradient(#fff 0 0);
+    mask: 
+      linear-gradient(#fff 0 0) content-box, 
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Specific glow for the input box */
+  .input-glow {
+    box-shadow: 
+      0 0 0 1px rgba(80, 24, 84, 0.03),
+      0 1px 1px rgba(0, 0, 0, 0.02),
+      0 4px 12px rgba(80, 24, 84, 0.04);
+  }
+
+  .glass-pill {
+    @apply flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-200;
+    border: 0.8px solid oklab(0.44 0.11 -0.08 / 0.1);
+    background: transparent;
+    color: var(--color-t3-berry-deep);
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .glass-pill:hover {
+    background: rgba(80, 24, 84, 0.04);
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground min-h-screen selection:bg-primary/20 selection:text-primary overflow-x-hidden;
+    font-family: 'Poppins', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Atmosphere: Edge Glows */
+.edge-glow-top {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  height: 200px;
+  background: radial-gradient(circle at center top, rgba(255, 255, 255, 0.4) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 10;
+  filter: blur(40px);
+}
+
+.edge-glow-bottom {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  height: 200px;
+  background: radial-gradient(circle at center bottom, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 10;
+  filter: blur(40px);
+}
+
+.bg-noise {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("https://t3.chat/images/noise.png");
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Markdown Prose Styles */
+.prose {
+    font-size: 16px;     /* Aligned with t3.chat */
+    line-height: 1.75;   /* 28px perfectly */
+    letter-spacing: -0.01em;
+    color: var(--color-foreground);
+    font-weight: 400;    /* t3.chat uses regular weight */
+}
+
+.prose h1, .prose h2, .prose h3 {
+    color: var(--color-foreground);
+    font-weight: 700;
+    margin-top: 1.25em;  /* Slightly reduced margins for tighter hierarchy */
+    margin-bottom: 0.5em;
+    letter-spacing: -0.02em;
+}
+
+.prose p {
+    margin-bottom: 1.25em;
+}
+
+.prose strong {
+    font-weight: 600;    /* Aligned with t3.chat inspection */
+    color: var(--color-foreground);
+}
+
+.prose ul, .prose ol {
+    margin-bottom: 1.25em;
+    padding-left: 1.5em;
+}
+
+.prose li {
+    margin-bottom: 0.5em;
+}
+
+.prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2em 0;
+}
+
+.prose th, .prose td {
+    padding: 0.85em;
+    border: 1px solid rgba(80, 24, 84, 0.08);
+    text-align: left;
+}
+
+.prose th {
+    background: rgba(80, 24, 84, 0.03);
+    font-weight: 650;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.prose blockquote {
+    border-left: 3px solid var(--color-t3-berry);
+    padding-left: 1.25em;
+    font-style: italic;
+    color: var(--color-t3-berry-deep);
+    margin: 2em 0;
+    opacity: 0.85;
+}
+
+.prose pre {
+    background: #000 !important;
+    border-radius: 0.75rem;
+    padding: 0 !important;
+}
+
+/* Syntax Highlighting Tweaks */
+.hljs {
+    background: transparent !important;
+}

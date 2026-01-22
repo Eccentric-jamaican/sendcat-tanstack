@@ -1,0 +1,16 @@
+{
+  "projectName": "t3-chat-replica",
+  "mode": "file-router",
+  "typescript": true,
+  "tailwind": false,
+  "packageManager": "npm",
+  "git": false,
+  "install": true,
+  "addOnOptions": {},
+  "version": 1,
+  "framework": "react-cra",
+  "chosenAddOns": [
+    "start",
+    "nitro"
+  ]
+}
