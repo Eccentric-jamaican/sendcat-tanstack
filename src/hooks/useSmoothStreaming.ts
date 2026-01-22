@@ -45,10 +45,10 @@ export function useSmoothStreaming(
       }
 
       // Elastic speed: The further behind, the faster we go.
-      // 60fps target. 
-      // Minimum speed: 0.5 chars per frame (approx 30 chars/sec minimum) -> keeps it moving.
-      // Factor 0.1 means we cover 10% of the remaining distance per frame.
-      const speed = Math.max(0.5, distance * 0.15);
+      // 60fps target.
+      // Higher minimum speed (2 chars/frame) and factor (0.25) for snappier response
+      // This reduces the "lagging behind" feeling while still smoothing out chunks
+      const speed = Math.max(2, distance * 0.25);
       
       currentLength.current += speed;
       

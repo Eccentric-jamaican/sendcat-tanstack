@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useSmoothStreaming } from '../hooks/useSmoothStreaming';
 import { Markdown } from './Markdown';
 
@@ -7,9 +8,25 @@ interface StreamingMessageProps {
 }
 
 export const StreamingMessage = ({ content, isStreaming }: StreamingMessageProps) => {
-  // Speed: 5ms per character for a very snappy but smooth feel
-  // Increase number to make it slower/smoother (e.g. 10 or 15)
   const smoothContent = useSmoothStreaming(content, isStreaming);
 
-  return <Markdown content={smoothContent} />;
+  // Memoize markdown to prevent unnecessary re-renders
+  const memoizedMarkdown = useMemo(() => (
+    <Markdown content={smoothContent} />
+  ), [smoothContent]);
+
+  return (
+    <div
+      style={{
+        // GPU acceleration hints during streaming
+        willChange: isStreaming ? 'contents' : 'auto',
+        // CSS containment to isolate reflows
+        contain: isStreaming ? 'layout style paint' : 'none',
+        // Force GPU layer
+        transform: 'translateZ(0)',
+      }}
+    >
+      {memoizedMarkdown}
+    </div>
+  );
 };

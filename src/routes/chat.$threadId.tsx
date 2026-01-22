@@ -220,24 +220,23 @@ function ChatPage() {
   const isEmpty = messages !== undefined && messages.length === 0
 
   return (
-    <div className="flex h-dvh min-h-screen overflow-hidden bg-background relative text-foreground">
+    <div className="flex h-dvh min-h-screen overflow-hidden bg-background relative text-foreground max-w-full">
       <div className="edge-glow-top" />
       <div className="edge-glow-bottom" />
       <div className="bg-noise" />
-      
+
       <Sidebar />
-      
+
       <main className={cn(
-        "flex-1 relative flex flex-col items-center p-2 md:p-4 z-20 overflow-hidden transition-all duration-300",
-        isEmpty ? "justify-center" : "justify-start",
-        !isMobile && "ml-[240px]"
+        "flex-1 relative flex flex-col items-center p-2 md:p-4 z-20 overflow-x-hidden overflow-y-hidden transition-all duration-300",
+        isEmpty ? "justify-center" : "justify-start"
       )}>
         {isEmpty ? (
           <div className="flex flex-col items-center justify-center w-full h-full">
             <LandingHero onSelectPrompt={(text) => chatInputRef.current?.setContentAndSend(text)} />
           </div>
         ) : (
-          <div className="max-w-5xl w-full flex-1 overflow-y-auto pt-20 md:pt-20 pb-40 scrollbar-hide">
+          <div className="max-w-5xl w-full flex-1 overflow-y-auto overflow-x-hidden pt-20 md:pt-20 pb-40 scrollbar-hide message-scroll-area">
             <TooltipProvider delayDuration={150}>
               {messages?.filter((msg: any) => !(msg.role === 'tool' && msg.name === 'search_web')).map((msg: any) => (
               <motion.div
@@ -248,6 +247,7 @@ function ChatPage() {
                   "mb-6 flex flex-col w-full group",
                   msg.role === "user" ? "items-end" : "items-start"
                 )}
+                style={{ contain: 'layout style' }}
               >
                 {/* Edit Mode - Full width input */}
                 {editingId === msg._id && msg.role === "user" ? (
@@ -365,7 +365,8 @@ function ChatPage() {
                 </div>
                 )}
 
-                {/* Message Actions */}
+                {/* Message Actions - Hidden during streaming to prevent jitter */}
+                {msg.status !== "streaming" && (
                 <div className={cn(
                   "flex items-center gap-1 mt-1.5 transition-opacity",
                   isMobile ? "opacity-100" : "opacity-0 group-hover:opacity-100",
@@ -447,7 +448,7 @@ function ChatPage() {
                         </button>
                       </MessageActionMenu>
                       
-                      <MessageMetadata 
+                      <MessageMetadata
                         modelName={msg.modelId ? getModelDisplayName(msg.modelId) : 'AI'}
                         wordCount={msg.content?.split(/\s+/).length}
                         toolCalls={msg.toolCalls?.length}
@@ -455,9 +456,11 @@ function ChatPage() {
                     </>
                   ) : null}
                 </div>
+                )}
               </motion.div>
             ))}
-            <div ref={messagesEndRef} />
+            {/* Scroll anchor to prevent jumps during streaming */}
+            <div ref={messagesEndRef} className="message-anchor" />
             {messages === undefined && (
               <div className="flex items-center justify-center h-full opacity-20">
                 <MessageSquare className="animate-pulse" size={48} />

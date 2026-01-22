@@ -5,6 +5,7 @@ import { ChevronDown, Search, Star, Sparkles, Brain, Eye, CircleCheck, ChevronRi
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -242,6 +243,7 @@ interface ModelPickerProps {
 }
 
 export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => {
+  const isMobile = useIsMobile()
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [activeProvider, setActiveProvider] = useState('favorites')
@@ -427,18 +429,21 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
         </button>
       </PopoverTrigger>
 
-      <PopoverContent 
-        align="start" 
-        side="top" 
-        sideOffset={12} 
-        className="w-[480px] p-0 bg-transparent border-none shadow-none"
+      <PopoverContent
+        align={isMobile ? "center" : "start"}
+        side="top"
+        sideOffset={isMobile ? 8 : 12}
+        className={cn(
+          "p-0 bg-transparent border-none shadow-none",
+          isMobile ? "w-[calc(100vw-16px)]" : "w-[480px]"
+        )}
       >
         <div className="w-full bg-white/[0.98] backdrop-blur-2xl border border-black/[0.08] rounded-2xl shadow-2xl shadow-black/10 overflow-hidden">
           {/* Upgrade Banner */}
           <div className="px-4 py-3 bg-gradient-to-r from-[#fef0ed] to-white flex items-center justify-between border-b border-t3-berry/[0.06]">
             <div className="flex flex-col gap-0.5">
               <span className="text-[13px] font-bold text-t3-berry">Unlock all models</span>
-              <span className="text-[11px] text-t3-berry/50 font-medium">$8 / month</span>
+              <span className="text-[11px] text-t3-berry/50 font-medium">$8/month</span>
             </div>
             <button className="px-4 py-1.5 bg-[#a23b67] hover:bg-[#8e325a] text-white text-[11px] font-bold rounded-full transition-colors shadow-sm">
               Upgrade
@@ -448,7 +453,7 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
           {/* Search Bar */}
           <div className="px-4 py-2.5 border-b border-black/[0.04] flex items-center gap-2.5" onKeyDown={handleKeyDown}>
             <Search size={15} className="text-t3-berry/30 shrink-0" />
-            <input 
+            <input
               autoFocus
               type="text"
               placeholder="Search models..."
@@ -509,92 +514,99 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
           </div>
 
           {/* Content Area */}
-          <div className="flex" style={{ height: '360px' }}>
-            {/* Provider Sidebar */}
-            <div className="w-[52px] bg-black/[0.02] flex flex-col items-center py-3 gap-1 border-r border-black/[0.04] overflow-y-auto scrollbar-hide">
+          <div className="flex flex-row" style={{ height: isMobile ? '50vh' : '360px', maxHeight: isMobile ? '400px' : '360px' }}>
+            {/* Provider Sidebar - Always vertical, narrower on mobile */}
+            <div className={cn(
+              "bg-black/[0.02] flex flex-col items-center gap-1 border-r border-black/[0.04] overflow-y-auto scrollbar-hide",
+              isMobile ? "w-[44px] py-2" : "w-[52px] py-3"
+            )}>
               {dynamicProviders.map((provider, index) => {
                 const showDivider = index > 0 && provider.group !== dynamicProviders[index - 1].group
                 return (
-                  <>
-                  {showDivider && <div className="w-5 h-px bg-black/5 my-1 shrink-0" />}
-                  <button
-                    key={provider.id}
-                    onClick={() => setActiveProvider(provider.id)}
-                    title={provider.name}
-                    className={cn(
-                      "w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 shrink-0",
-                      activeProvider === provider.id 
-                        ? "bg-white shadow-sm text-t3-berry" 
-                        : "text-t3-berry/30 hover:text-t3-berry/60 hover:bg-black/[0.03]"
-                    )}
-                  >
-                    <ProviderIcon provider={provider.id} />
-                  </button>
-                  </>
+                  <div key={provider.id}>
+                    {showDivider && <div className={cn("h-px bg-black/5 my-1 mx-auto", isMobile ? "w-4" : "w-5")} />}
+                    <button
+                      onClick={() => setActiveProvider(provider.id)}
+                      title={provider.name}
+                      className={cn(
+                        "flex items-center justify-center rounded-xl transition-all duration-150 shrink-0",
+                        isMobile ? "w-8 h-8" : "w-9 h-9",
+                        activeProvider === provider.id
+                          ? "bg-white shadow-sm text-t3-berry"
+                          : "text-t3-berry/30 hover:text-t3-berry/60 hover:bg-black/[0.03]"
+                      )}
+                    >
+                      <ProviderIcon provider={provider.id} />
+                    </button>
+                  </div>
                 )
               })}
             </div>
 
             {/* Model List Area */}
-            <div 
+            <div
               ref={listRef}
-              className="flex-1 flex flex-col overflow-y-auto p-2 space-y-0.5 outline-none" 
+              className="flex-1 flex flex-col overflow-y-auto space-y-0.5 outline-none p-2"
               onKeyDown={handleKeyDown}
               tabIndex={0}
             >
               {filteredModels.map((model, index) => (
-                  <button
-                    key={model.id}
-                    onClick={() => {
-                      onSelect(model.id)
-                      setIsOpen(false)
-                    }}
-                    className={cn(
-                      "w-full text-left px-3 py-2.5 rounded-xl transition-all duration-100 group flex items-start gap-2.5",
-                      selectedModelId === model.id || focusedIndex === index
-                        ? "bg-t3-berry/[0.06]" 
-                        : "hover:bg-black/[0.03]"
+                <button
+                  key={model.id}
+                  onClick={() => {
+                    onSelect(model.id)
+                    setIsOpen(false)
+                  }}
+                  className={cn(
+                    "w-full text-left rounded-xl transition-all duration-100 group flex items-start px-3 py-2.5 gap-2.5",
+                    selectedModelId === model.id || focusedIndex === index
+                      ? "bg-t3-berry/[0.06]"
+                      : "hover:bg-black/[0.03]"
+                  )}
+                >
+                  {/* Plus/Check Icon */}
+                  <div className="mt-0.5 shrink-0">
+                    {selectedModelId === model.id ? (
+                      <CircleCheck size={16} className="text-t3-berry fill-t3-berry/20" />
+                    ) : (
+                      <Plus size={16} className="text-t3-berry/30 group-hover:text-t3-berry/50" />
                     )}
-                  >
-                    {/* Plus/Check Icon */}
-                    <div className="mt-0.5 shrink-0">
-                      {selectedModelId === model.id ? (
-                        <CircleCheck size={16} className="text-t3-berry fill-t3-berry/20" />
-                      ) : (
-                        <Plus size={16} className="text-t3-berry/30 group-hover:text-t3-berry/50" />
-                      )}
-                    </div>
+                  </div>
 
-                    {/* Model Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className={cn(
-                          "text-[13px] font-semibold truncate",
-                          selectedModelId === model.id ? "text-t3-berry" : "text-t3-berry/80"
-                        )}>
-                          {model.name}
+                  {/* Model Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                      <span className={cn(
+                        "font-semibold text-[13px]",
+                        selectedModelId === model.id ? "text-t3-berry" : "text-t3-berry/80"
+                      )}>
+                        {model.name}
+                      </span>
+                      {model.isNew && (
+                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold rounded-md uppercase shrink-0">
+                          New
                         </span>
-                        {model.isNew && (
-                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold rounded-md uppercase">
-                            New
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-t3-berry/40 font-medium leading-snug truncate">
-                        {model.description}
-                      </p>
+                      )}
                     </div>
+                    <p className={cn(
+                      "text-[11px] text-t3-berry/40 font-medium leading-snug",
+                      isMobile ? "line-clamp-2" : "truncate"
+                    )}>
+                      {model.description}
+                    </p>
+                  </div>
 
-                    {/* Feature Icons & Star */}
-                    <div className="flex items-center gap-1.5 mt-0.5 shrink-0">
-                      {model.hasVision && (
-                        <Eye size={13} className="text-t3-berry/25" />
-                      )}
-                      {model.isThinking && (
-                        <Brain size={13} className="text-t3-berry/25" />
-                      )}
-                      
-                      {/* Info Icon & Popover */}
+                  {/* Feature Icons & Star */}
+                  <div className="flex items-center gap-1.5 mt-0.5 shrink-0">
+                    {model.hasVision && (
+                      <Eye size={13} className="text-t3-berry/25" />
+                    )}
+                    {model.isThinking && (
+                      <Brain size={13} className="text-t3-berry/25" />
+                    )}
+
+                    {/* Info Icon & Popover - Hidden on mobile */}
+                    {!isMobile && (
                       <Popover>
                         <PopoverTrigger asChild>
                           <button
@@ -608,9 +620,9 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
                             </svg>
                           </button>
                         </PopoverTrigger>
-                        <PopoverContent 
-                          side="right" 
-                          align="center" 
+                        <PopoverContent
+                          side="right"
+                          align="center"
                           sideOffset={15}
                           className="w-[260px] p-4 bg-white shadow-2xl border border-black/[0.08] rounded-2xl z-[110]"
                         >
@@ -619,7 +631,7 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
                               <h4 className="text-[12px] font-bold text-t3-berry mb-1">{model.name}</h4>
                               <p className="text-[11px] text-t3-berry/60 leading-relaxed font-medium">{model.description}</p>
                             </div>
-                            
+
                             <div className="space-y-2.5">
                               <div className="flex justify-between text-[11px]">
                                 <span className="text-t3-berry/40 font-bold uppercase tracking-wider">Developer</span>
@@ -649,26 +661,27 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
                           </div>
                         </PopoverContent>
                       </Popover>
+                    )}
 
-                      {/* Favorite Star */}
-                      <button
-                        onClick={(e) => toggleFavorite(model.id, e)}
-                        className={cn(
-                          "p-1 hover:bg-black/5 rounded-md transition-colors ml-1",
-                          favorites.includes(model.id) ? "text-amber-400" : "text-t3-berry/20 hover:text-t3-berry/40"
-                        )}
-                      >
-                        <Star size={14} className={cn(favorites.includes(model.id) && "fill-current")} />
-                      </button>
-                    </div>
-                  </button>
-                ))}
-
-                {filteredModels.length === 0 && (
-                  <div className="py-8 text-center text-t3-berry/40 text-[13px]">
-                    No models found
+                    {/* Favorite Star */}
+                    <button
+                      onClick={(e) => toggleFavorite(model.id, e)}
+                      className={cn(
+                        "p-1 ml-1 hover:bg-black/5 rounded-md transition-colors",
+                        favorites.includes(model.id) ? "text-amber-400" : "text-t3-berry/20 hover:text-t3-berry/40"
+                      )}
+                    >
+                      <Star size={14} className={cn(favorites.includes(model.id) && "fill-current")} />
+                    </button>
                   </div>
-                )}
+                </button>
+              ))}
+
+              {filteredModels.length === 0 && (
+                <div className="py-8 text-center text-t3-berry/40 text-[13px]">
+                  No models found
+                </div>
+              )}
             </div>
           </div>
         </div>
