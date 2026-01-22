@@ -49,11 +49,22 @@ export const Route = createRootRoute({
   shellComponent: RootDocument,
 })
 
+import { useEffect } from 'react'
 import { Toaster } from 'sonner'
 import { ConvexProvider } from "convex/react"
 import { convex } from "../lib/convex"
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch((err) => {
+          console.error('Service Worker registration failed:', err);
+        });
+      });
+    }
+  }, []);
+
   return (
     <html lang="en">
       <head>
