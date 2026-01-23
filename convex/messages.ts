@@ -14,15 +14,18 @@ export const list = query({
       if (!msg.attachments || msg.attachments.length === 0) return msg;
       const attachments = await Promise.all(msg.attachments.map(async (att) => ({
         ...att,
-        url: await ctx.storage.getUrl(att.storageId)
+        url: await ctx.storage.getUrl(att.storageId).catch(() => null)
       })));
       return { ...msg, attachments };
     }));
   },
 });
 
-export const generateUploadUrl = mutation(async (ctx) => {
-  return await ctx.storage.generateUploadUrl();
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
+  },
 });
 
 export const send = mutation({
@@ -30,7 +33,7 @@ export const send = mutation({
     threadId: v.id("threads"), 
     content: v.string(), 
     role: v.union(v.literal("user"), v.literal("assistant"), v.literal("system"), v.literal("tool")),
-    status: v.optional(v.union(v.literal("streaming"), v.literal("completed"), v.literal("error"))),
+    status: v.optional(v.union(v.literal("streaming"), v.literal("completed"), v.literal("error"), v.literal("aborted"))),
     attachments: v.optional(v.array(v.object({
       storageId: v.id("_storage"),
       type: v.string(), 
@@ -99,23 +102,25 @@ export const initializeAssistantMessage = mutation({
 });
 
 export const appendContent = mutation({
-  args: { 
-    messageId: v.id("messages"), 
+  args: {
+    messageId: v.id("messages"),
     content: v.string(),
     status: v.optional(v.union(v.literal("streaming"), v.literal("completed"), v.literal("error"), v.literal("aborted")))
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ aborted: boolean }> => {
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
 
     if (message.status === "aborted") {
-      throw new Error("Message aborted");
+      return { aborted: true }; // Signal that message was aborted
     }
 
     await ctx.db.patch(args.messageId, {
       content: message.content + args.content,
       status: args.status ?? "streaming"
     });
+
+    return { aborted: false };
   }
 });
 
@@ -142,9 +147,10 @@ export const abortLatestInThread = mutation({
     console.log("abortLatestInThread called for thread:", args.threadId);
     const latest = await ctx.db
       .query("messages")
-      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .withIndex("by_thread_status", (q) =>
+        q.eq("threadId", args.threadId).eq("status", "streaming")
+      )
       .order("desc")
-      .filter((q) => q.eq(q.field("status"), "streaming"))
       .first();
 
     console.log("Found latest streaming message:", latest?._id);
@@ -172,9 +178,10 @@ export const isThreadStreaming = query({
     if (!args.threadId) return false;
     const latest = await ctx.db
       .query("messages")
-      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId!))
+      .withIndex("by_thread_status", (q) =>
+        q.eq("threadId", args.threadId!).eq("status", "streaming")
+      )
       .order("desc")
-      .filter((q) => q.eq(q.field("status"), "streaming"))
       .first();
     return !!latest;
   },

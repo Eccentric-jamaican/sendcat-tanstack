@@ -88,8 +88,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ existing
   const generateUploadUrl = useMutation(api.messages.generateUploadUrl)
   const isThreadStreaming = useQuery(api.messages.isThreadStreaming, threadId ? { threadId: threadId as any } : "skip")
   
-  const getAbortKey = (tid: string) => `abort_${tid}`
-  
+    
   const [attachments, setAttachments] = useState<{
     storageId: string;
     type: string;
@@ -155,7 +154,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ existing
   const handleStop = async () => {
     console.log("Stopping generation, threadId:", threadId);
     if (threadId) {
-      localStorage.setItem(getAbortKey(threadId), Date.now().toString());
       await abortLatestInThread({ threadId: threadId as any })
       console.log("Aborted latest message in thread");
     }
@@ -193,9 +191,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ existing
         navigate({ to: '/chat/$threadId', params: { threadId: currentThreadId } })
       }
       
-      // Clear any previous abort flag for this thread
-      localStorage.removeItem(getAbortKey(currentThreadId))
-      
+            
       await sendMessage({
         threadId: currentThreadId as any,
         content: messageContent,
@@ -207,7 +203,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ existing
       
       setAttachments([])
        
-      // Trigger LLM streaming with abort key
+      // Trigger LLM streaming
       // Only pass reasoningEffort when the current model supports reasoning AND it's set
       await streamAnswer({
         threadId: currentThreadId as any,
@@ -215,7 +211,6 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ existing
         reasoningEffort: supportsReasoning && reasoningEffort ? reasoningEffort : undefined,
         reasoningType: supportsReasoning && reasoningEffort ? reasoningType : undefined,
         webSearch: searchEnabled,
-        abortKey: getAbortKey(currentThreadId)
       })
        
       setIsGenerating(false)
@@ -229,7 +224,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ existing
 
   return (
     <div className={cn(
-      "w-full px-2 pb-1 md:px-4 md:pb-2 pointer-events-none z-50 text-center transition-all duration-300",
+      "w-full pointer-events-none z-50 text-center transition-all duration-300",
       className
     )}>
       <div className="max-w-[768px] mx-auto pointer-events-auto w-full">

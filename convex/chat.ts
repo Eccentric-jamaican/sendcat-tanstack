@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { api } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
 
 const TOOLS = [
   {
@@ -55,13 +56,13 @@ export const streamAnswer = action({
     reasoningEffort: v.optional(v.string()),
     reasoningType: v.optional(v.union(v.literal("effort"), v.literal("max_tokens"))),
     webSearch: v.optional(v.boolean()),
-    abortKey: v.optional(v.string())
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Id<"messages"> | null> => {
     const MAX_CYCLES = 5;
     let cycle = 0;
-    let currentMessageId: any = null;
+    let currentMessageId: Id<"messages"> | null = null;
     let shouldContinue = true;
+    let isAborted = false;
 
     // Filter tools based on user preference
     const activeTools = TOOLS.filter(t => {
@@ -71,71 +72,64 @@ export const streamAnswer = action({
 
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-      // Mock mode logic (simplified)
-      // ... (Returning existing mock mode logic would be complex in loop, skipping for brevity/assuming key exists or simple fallback)
-       const messageId = await ctx.runMutation(api.messages.initializeAssistantMessage, {
+       const msgId = await ctx.runMutation(api.messages.initializeAssistantMessage, {
           threadId: args.threadId,
           modelId: args.modelId,
         });
-        await ctx.runMutation(api.messages.appendContent, { messageId, content: "Error: No API Key configured." });
-        return;
+        await ctx.runMutation(api.messages.appendContent, { messageId: msgId, content: "Error: No API Key configured." });
+        await ctx.runMutation(api.messages.updateStatus, { messageId: msgId, status: "error" });
+        return msgId;
     }
 
     // Create the assistant message once, before the loop
-    const messageId = await ctx.runMutation(api.messages.initializeAssistantMessage, {
+    currentMessageId = await ctx.runMutation(api.messages.initializeAssistantMessage, {
       threadId: args.threadId,
       modelId: args.modelId,
     });
-    currentMessageId = messageId;
 
-    while (shouldContinue && cycle < MAX_CYCLES) {
+    while (shouldContinue && cycle < MAX_CYCLES && !isAborted) {
       shouldContinue = false; // Default to stop unless tool calls happen
       cycle++;
 
-      // 2. Fetch Context
+      // Fetch Context
       const messages = await ctx.runQuery(api.messages.list, { threadId: args.threadId });
 
-      // 3. Prepare OpenRouter Payload
-      // Exclude the current (empty/streaming) assistant message - it will receive the response
+      // Prepare OpenRouter Payload - exclude the current streaming message
       const openRouterMessages = messages
-        .filter((m: any) => {
-          // Always exclude the current message we're about to stream into
-          if (m._id === currentMessageId) {
-            return false;
-          }
-          return true;
-        })
+        .filter((m: any) => m._id !== currentMessageId)
         .map((m: any) => {
-        const msg: any = { role: m.role };
-        
-        // Content & Attachments
-        if (m.attachments && m.attachments.length > 0) {
-           const content = [{ type: "text", text: m.content || "" }] as any[];
-           m.attachments.forEach((att: any) => {
-              if (att.url) {
-                 if (att.type.startsWith('image/') || att.type === 'application/pdf') {
-                    content.push({ type: "image_url", image_url: { url: att.url } });
-                 }
-              }
-           });
-           msg.content = content;
-        } else {
-           msg.content = m.content;
-        }
+          const msg: any = { role: m.role };
 
-        // Tool related fields
-        if (m.toolCalls) {
-           msg.tool_calls = m.toolCalls;
-        }
-        if (m.role === "tool") {
-           msg.tool_call_id = m.toolCallId;
-           msg.content = m.content; // Tool output is string
-        }
-        
-        return msg;
-      });
+          // Content & Attachments
+          if (m.attachments && m.attachments.length > 0) {
+             const content = [{ type: "text", text: m.content || "" }] as any[];
+             m.attachments.forEach((att: any) => {
+                if (att.url) {
+                   if (att.type.startsWith('image/') || att.type === 'application/pdf') {
+                      content.push({ type: "image_url", image_url: { url: att.url } });
+                   }
+                }
+             });
+             msg.content = content;
+          } else {
+             msg.content = m.content;
+          }
 
-      // 4. Call API
+          // Tool related fields
+          if (m.toolCalls) {
+             msg.tool_calls = m.toolCalls;
+          }
+          if (m.role === "tool") {
+             msg.tool_call_id = m.toolCallId;
+             msg.content = m.content;
+          }
+
+          return msg;
+        });
+
+      // Create AbortController to cancel the fetch if user aborts
+      const controller = new AbortController();
+
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -149,7 +143,6 @@ export const streamAnswer = action({
           messages: openRouterMessages,
           tools: activeTools.length > 0 ? activeTools : undefined,
           tool_choice: activeTools.length > 0 && cycle === MAX_CYCLES ? "none" : undefined,
-          // Include reasoning based on model type - effort vs max_tokens format
           ...(args.reasoningEffort && args.reasoningType === 'effort'
             ? { reasoning: { effort: args.reasoningEffort } }
             : args.reasoningEffort && args.reasoningType === 'max_tokens'
@@ -157,6 +150,7 @@ export const streamAnswer = action({
             : {}),
           stream: true,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) throw new Error(`OpenRouter API error: ${await response.text()}`);
@@ -168,78 +162,47 @@ export const streamAnswer = action({
       let accumulatedToolCalls: any[] = [];
       let accumulatedReasoning = "";
       let finishReason: string | null = null;
-      let lastCheck = 0;
-      const abortCheckIntervalMs = 100;
-
-      let isAborted = false;
-      
-      while (true) {
+      // Main streaming loop
+      streamLoop: while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         const chunk = decoder.decode(value, { stream: true });
         const lines = chunk.split("\n").filter(line => line.trim() !== "");
-        
+
         for (const line of lines) {
+          if (isAborted) break streamLoop;
+
           if (line.startsWith("data: ")) {
             const dataStr = line.replace("data: ", "");
-            if (dataStr === "[DONE]") break;
-            
+            if (dataStr === "[DONE]") break streamLoop;
+
             try {
               const data = JSON.parse(dataStr);
               const delta = data.choices[0]?.delta;
               const chunkFinishReason = data.choices[0]?.finish_reason;
 
-              // Capture finish_reason when it arrives
               if (chunkFinishReason) {
                 finishReason = chunkFinishReason;
               }
 
-              // Check for abort via localStorage flag (passed from client)
-              // We check this frequently for immediate cancellation
-              if (args.abortKey && typeof localStorage !== 'undefined') {
-                const abortValue = localStorage.getItem(args.abortKey);
-                if (abortValue) {
-                  console.log("Aborting stream via localStorage flag");
-                  shouldContinue = false;
-                  isAborted = true;
-                  break;
-                }
-              }
-              
-              // Check if aborted by user via DB (throttle to every 200ms)
-              if (Date.now() - lastCheck > abortCheckIntervalMs) {
-                lastCheck = Date.now();
-                const currentStatus = await ctx.runQuery(api.messages.getStatus, { messageId });
-                console.log(`Checking status for ${messageId}: ${currentStatus}`);
-                if (currentStatus === "aborted") {
-                  console.log("Aborting stream due to user request");
-                  shouldContinue = false;
-                  isAborted = true;
-                  break;
-                }
-              }
-
-              // Handle Reasoning tokens (OpenRouter sends these in delta.reasoning)
+              // Handle Reasoning tokens
               if (delta?.reasoning) {
                 accumulatedReasoning += delta.reasoning;
               }
 
-              // Handle Content
+              // Handle Content - check if aborted via mutation return value
               if (delta?.content) {
-                try {
-                  await ctx.runMutation(api.messages.appendContent, {
-                    messageId,
-                    content: delta.content
-                  });
-                } catch (e: any) {
-                  if (e.message.includes("aborted")) {
-                    console.log("Stream aborted via mutation check");
-                    shouldContinue = false;
-                    isAborted = true;
-                    break;
-                  }
-                  throw e;
+                const result = await ctx.runMutation(api.messages.appendContent, {
+                  messageId: currentMessageId,
+                  content: delta.content
+                });
+                if (result.aborted) {
+                  console.log("Aborting stream - message was aborted");
+                  isAborted = true;
+                  controller.abort();
+                  try { await reader.cancel(); } catch {}
+                  break streamLoop;
                 }
               }
 
@@ -248,41 +211,39 @@ export const streamAnswer = action({
                 accumulatedToolCalls = mergeToolCalls(accumulatedToolCalls, delta.tool_calls);
               }
             } catch (e) {
-              console.error("Parse error", e);
+              // JSON parse errors are expected for malformed chunks, skip them
             }
-          }
-          
-          if (isAborted) {
-            break;
           }
         }
       }
-      
-      // 5. Post-Stream Processing
-      if (!isAborted) {
-        await ctx.runMutation(api.messages.updateStatus, { messageId, status: "completed" });
+
+      // Post-Stream Processing
+      if (isAborted) {
+        // Ensure the message is marked as aborted
+        await ctx.runMutation(api.messages.updateStatus, { messageId: currentMessageId, status: "aborted" });
+      } else {
+        await ctx.runMutation(api.messages.updateStatus, { messageId: currentMessageId, status: "completed" });
       }
 
       // Save reasoning content if any was accumulated
       if (accumulatedReasoning.trim()) {
         await ctx.runMutation(api.messages.saveReasoningContent, {
-          messageId,
+          messageId: currentMessageId,
           reasoningContent: accumulatedReasoning
         });
       }
 
-      // Log finish_reason for debugging (useful for detecting incomplete responses)
+      // Log non-standard finish reasons for debugging
       if (finishReason && finishReason !== 'stop' && finishReason !== 'tool_calls') {
         console.log(`Stream finished with reason: ${finishReason}`);
       }
 
-      if (accumulatedToolCalls.length > 0) {
-         // Save tool calls to message and mark as completed (this cycle is done)
+      // Handle tool calls
+      if (accumulatedToolCalls.length > 0 && !isAborted) {
          await ctx.runMutation(api.messages.saveToolCalls, {
-            messageId,
+            messageId: currentMessageId,
             toolCalls: accumulatedToolCalls
          });
-         await ctx.runMutation(api.messages.updateStatus, { messageId, status: "completed" });
 
          // Execute Tools
          for (const tc of accumulatedToolCalls) {
@@ -297,23 +258,21 @@ export const streamAnswer = action({
                } else if (name === "search_web") {
                   const serperKey = process.env.SERPER_API_KEY;
                   if (!serperKey) {
-                     result = "Error: SERPER_API_KEY not configured in environment variables. Please add it to use real search.";
+                     result = "Error: SERPER_API_KEY not configured in environment variables.";
                   } else {
-                     const q = argsObj.query;
                      const res = await fetch("https://google.serper.dev/search", {
                         method: "POST",
                         headers: {
                            "X-API-KEY": serperKey,
                            "Content-Type": "application/json"
                         },
-                        body: JSON.stringify({ q: q })
+                        body: JSON.stringify({ q: argsObj.query })
                      });
 
                      if (!res.ok) {
                         result = JSON.stringify({ error: res.statusText });
                      } else {
                         const data = await res.json();
-                        // Return raw JSON for frontend rendering, model can parse it too
                         result = JSON.stringify(data.organic?.slice(0, 5) || []);
                      }
                   }
@@ -333,17 +292,15 @@ export const streamAnswer = action({
          }
 
          // Create a NEW assistant message for the follow-up response
-         // This is the correct pattern: tool_calls message -> tool results -> new assistant message
-         const followUpMessageId = await ctx.runMutation(api.messages.initializeAssistantMessage, {
+         currentMessageId = await ctx.runMutation(api.messages.initializeAssistantMessage, {
             threadId: args.threadId,
             modelId: args.modelId,
          });
-         currentMessageId = followUpMessageId;
 
-         // Continue loop to let model interpret results
          shouldContinue = true;
       }
     }
+
     return currentMessageId;
   },
 });

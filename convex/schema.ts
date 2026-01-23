@@ -34,6 +34,7 @@ export default defineSchema({
     }))),
     toolCallId: v.optional(v.string()),
     name: v.optional(v.string()),
-  }).index("by_thread", ["threadId"]),
+  }).index("by_thread", ["threadId"])
+    .index("by_thread_status", ["threadId", "status"]),
 
 });

@@ -5,7 +5,7 @@ import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { useQuery, useMutation } from "convex/react"
 import { api } from "../../convex/_generated/api"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useNavigate, useParams, Link } from "@tanstack/react-router"
 import { useIsMobile } from '../hooks/useIsMobile'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ReactMarkdown from 'react-markdown'
@@ -448,10 +448,13 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
             </button>
 
             <div className="flex flex-col gap-0.5 mb-2">
-              <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-[13.5px] font-medium text-foreground/75 hover:bg-black/[0.03] hover:text-foreground group">
-                <Compass size={16} className="text-foreground/40 group-hover:text-foreground transition-colors" />
+              <Link 
+                to="/explore"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-[13.5px] font-medium text-foreground/75 hover:bg-black/[0.03] hover:text-foreground group [&.active]:bg-black/[0.05] [&.active]:text-foreground"
+              >
+                <Compass size={16} className="text-foreground/40 group-hover:text-foreground transition-colors group-[.active]:text-foreground" />
                 <span>Explore</span>
-              </button>
+              </Link>
               <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-[13.5px] font-medium text-foreground/75 hover:bg-black/[0.03] hover:text-foreground group">
                 <Bookmark size={16} className="text-foreground/40 group-hover:text-foreground transition-colors" />
                 <span>Saved items</span>
