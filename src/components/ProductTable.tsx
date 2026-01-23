@@ -1,5 +1,5 @@
 import { type Product } from "../data/mockProducts";
-import { Checkbox } from "./ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface ProductTableProps {
   products: Product[];
@@ -42,7 +42,7 @@ export function ProductTable({ products, selectedIds, onToggleSelection, onProdu
                   onClick={() => onProductClick(product.id)}
                 >
                   <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-gray-100 border border-gray-200">
-                    <img src={product.image} alt="" className="h-full w-full object-cover" />
+                    <img src={product.image} alt={`${product.title} image`} className="h-full w-full object-cover" />
                   </div>
                   <div className="flex flex-col">
                     <span className="font-medium text-gray-900 group-hover:text-[#a23b67] transition-colors leading-tight line-clamp-1">
