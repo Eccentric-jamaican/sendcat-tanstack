@@ -4,7 +4,7 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { ChatInput, type ChatInputHandle } from '../components/ChatInput'
 import { useQuery, useMutation, useAction } from "convex/react"
 import { api } from "../../convex/_generated/api"
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { MessageSquare, Edit3, Copy, GitBranch, RotateCcw, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { LandingHero } from '../components/LandingHero'
@@ -15,6 +15,7 @@ import { Markdown } from '../components/Markdown'
 import { SearchToolResult } from '../components/SearchToolResult'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip'
 import { StreamingMessage } from '../components/StreamingMessage'
+import { ReasoningBlock } from '../components/ReasoningBlock'
 import { MessageActionMenu } from '../components/MessageActionMenu'
 import { MessageEditInput } from '../components/MessageEditInput'
 import { MessageMetadata } from '../components/MessageMetadata'
@@ -74,18 +75,24 @@ function ChatPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [isRetrying, setIsRetrying] = useState(false)
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null)
+  const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null)
   const chatInputRef = useRef<ChatInputHandle>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const prevMessageCount = useRef(0)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
+  // Only scroll when a new message is added, not during streaming content updates
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
+    if (messages && messages.length > prevMessageCount.current) {
+      scrollToBottom()
+      prevMessageCount.current = messages.length
+    }
+  }, [messages?.length])
 
   const handleCopy = (id: string, text: string) => {
     navigator.clipboard.writeText(text)
@@ -105,8 +112,9 @@ function ChatPage() {
 
   // Retry: delete messages after the user message and regenerate response
   const handleRetry = async (userMessageId: string, modelId?: string) => {
-    if (isRetrying) return
-    setIsRetrying(true)
+    // Prevent duplicate retries on the same message
+    if (retryingMessageId === userMessageId) return
+    setRetryingMessageId(userMessageId)
 
     try {
       // Delete all messages after this user message
@@ -117,39 +125,51 @@ function ChatPage() {
 
       // Get the model to use (either specified or from localStorage)
       const selectedModel = modelId || localStorage.getItem('t3_selected_model') || 'google/gemini-2.0-flash-exp:free'
-      
-      // Only pass reasoning for models that support effort-based reasoning
-      // Per OpenRouter docs: OpenAI o1/o3/gpt-5, Grok models
+
+      // Detect reasoning type based on model ID patterns (per OpenRouter docs)
       const modelLower = selectedModel.toLowerCase()
-      const supportsEffortReasoning = 
-        modelLower.includes('/o1') || 
-        modelLower.includes('/o3') || 
+      const supportsEffortReasoning =
+        modelLower.includes('/o1') ||
+        modelLower.includes('/o3') ||
         modelLower.includes('/gpt-5') ||
         modelLower.includes('grok')
-      
+
+      const supportsMaxTokensReasoning =
+        (modelLower.includes('gemini') && modelLower.includes('thinking')) ||
+        modelLower.includes('claude-3.7') ||
+        modelLower.includes('claude-sonnet-4') ||
+        modelLower.includes('claude-4') ||
+        (modelLower.includes('qwen') && modelLower.includes('thinking')) ||
+        modelLower.includes('deepseek-r1')
+
       const savedReasoning = localStorage.getItem('t3_reasoning_effort')
-      const reasoningEffort = supportsEffortReasoning && savedReasoning 
-        ? savedReasoning as 'low' | 'medium' | 'high' 
+      const reasoningEffort = (supportsEffortReasoning || supportsMaxTokensReasoning) && savedReasoning
+        ? savedReasoning as 'low' | 'medium' | 'high'
         : undefined
+      const reasoningType = supportsEffortReasoning ? 'effort' : supportsMaxTokensReasoning ? 'max_tokens' : undefined
 
       // Regenerate the response
       await streamAnswer({
         threadId: threadId as any,
         modelId: selectedModel,
         webSearch: false,
-        reasoningEffort
+        reasoningEffort,
+        reasoningType
       })
     } catch (error) {
       console.error("Failed to retry:", error)
       toast.error("Failed to retry message")
     } finally {
-      setIsRetrying(false)
+      setRetryingMessageId(null)
     }
   }
 
   // Branch: create a new thread with messages up to and including the user message
   const handleBranch = async (userMessageId: string, modelId?: string) => {
     if (!messages) return
+    // Prevent duplicate branch operations on the same message
+    if (branchingMessageId === userMessageId) return
+    setBranchingMessageId(userMessageId)
 
     try {
       // Find the user message and all messages before it
@@ -186,25 +206,35 @@ function ChatPage() {
 
       // Generate new response in the branched thread
       const selectedModel = modelId || localStorage.getItem('t3_selected_model') || 'google/gemini-2.0-flash-exp:free'
-      
-      // Only pass reasoning for models that support effort-based reasoning
+
+      // Detect reasoning type based on model ID patterns (per OpenRouter docs)
       const modelLower = selectedModel.toLowerCase()
-      const supportsEffortReasoning = 
-        modelLower.includes('/o1') || 
-        modelLower.includes('/o3') || 
+      const supportsEffortReasoning =
+        modelLower.includes('/o1') ||
+        modelLower.includes('/o3') ||
         modelLower.includes('/gpt-5') ||
         modelLower.includes('grok')
-      
+
+      const supportsMaxTokensReasoning =
+        (modelLower.includes('gemini') && modelLower.includes('thinking')) ||
+        modelLower.includes('claude-3.7') ||
+        modelLower.includes('claude-sonnet-4') ||
+        modelLower.includes('claude-4') ||
+        (modelLower.includes('qwen') && modelLower.includes('thinking')) ||
+        modelLower.includes('deepseek-r1')
+
       const savedReasoning = localStorage.getItem('t3_reasoning_effort')
-      const reasoningEffort = supportsEffortReasoning && savedReasoning 
-        ? savedReasoning as 'low' | 'medium' | 'high' 
+      const reasoningEffort = (supportsEffortReasoning || supportsMaxTokensReasoning) && savedReasoning
+        ? savedReasoning as 'low' | 'medium' | 'high'
         : undefined
-      
+      const reasoningType = supportsEffortReasoning ? 'effort' : supportsMaxTokensReasoning ? 'max_tokens' : undefined
+
       await streamAnswer({
         threadId: newThreadId,
         modelId: selectedModel,
         webSearch: false,
-        reasoningEffort
+        reasoningEffort,
+        reasoningType
       })
 
       // Navigate to the new thread
@@ -214,6 +244,8 @@ function ChatPage() {
     } catch (error) {
       console.error("Failed to branch:", error)
       toast.error("Failed to branch conversation")
+    } finally {
+      setBranchingMessageId(null)
     }
   }
 
@@ -249,121 +281,148 @@ function ChatPage() {
                 )}
                 style={{ contain: 'layout style' }}
               >
-                {/* Edit Mode - Full width input */}
-                {editingId === msg._id && msg.role === "user" ? (
-                  <div className="w-full flex justify-end">
-                    <MessageEditInput
-                      messageId={msg._id}
-                      threadId={threadId}
-                      initialContent={editingContent}
-                      initialAttachments={msg.attachments}
-                      onCancel={() => setEditingId(null)}
-                      onSubmit={() => setEditingId(null)}
-                    />
-                  </div>
-                ) : (
-                <div className={cn(
-                  "leading-relaxed transition-all break-words",
-                  msg.role === "user"
-                    ? "max-w-[95%] sm:max-w-[85%] bg-zinc-100 text-zinc-900 px-4 md:px-5 py-2.5 md:py-3 rounded-2xl shadow-sm text-center text-[15px] md:text-[15.5px]"
-                    : "w-full max-w-none text-foreground/90 px-4 md:px-2 py-1"
-                )}>
-                    <div className="flex flex-col gap-1">
-                      {/* Attachments Display */}
-                      {msg.attachments && msg.attachments.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-2">
-                          {msg.attachments.map((att: any, i: number) => (
-                            <div key={i} className="rounded-lg overflow-hidden border border-black/10">
-                              {att.type.startsWith('image/') ? (
-                                <img src={att.url} alt="attachment" className="max-w-xs max-h-60 object-cover" />
-                              ) : (
-                                <a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-3 bg-black/5 hover:bg-black/10 transition-colors">
-                                  <div className="bg-white p-1 rounded">
-                                    <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                  </div>
-                                  <span className="text-sm font-medium underline">{att.name}</span>
-                                </a>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {msg.role === "assistant" ? (
-                        <>
-                          {msg.toolCalls && msg.toolCalls.length > 0 && (
-                            <div className="flex flex-col gap-2 mb-2">
-                              {msg.toolCalls.map((tc: any, i: number) => {
-                                if (tc.function.name === 'search_web') {
-                                   const toolMsg = messages.find((m: any) => m.role === 'tool' && m.toolCallId === tc.id);
-                                   return <SearchToolResult key={i} isLoading={!toolMsg} result={toolMsg?.content} />
-                                }
-                                return (
-                                <div key={i} className="text-xs bg-black/5 p-2 rounded border border-black/5 flex items-center gap-2 font-mono text-foreground/70">
-                                  <div className="w-2 h-2 rounded-full bg-blue-400" />
-                                  Used tool: {tc.function.name}
+                <div className={cn("relative w-full flex flex-col", msg.role === "user" ? "items-end" : "items-start")}>
+                  <AnimatePresence mode="wait">
+                    {editingId === msg._id && msg.role === "user" ? (
+                      <motion.div
+                        key="edit-input"
+                        initial={{ opacity: 0, scale: 0.98 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.98 }}
+                        transition={{ duration: 0.2 }}
+                        layout="position"
+                        className="w-full flex justify-end"
+                      >
+                        <MessageEditInput
+                          messageId={msg._id}
+                          threadId={threadId}
+                          initialContent={editingContent}
+                          initialAttachments={msg.attachments}
+                          onCancel={() => setEditingId(null)}
+                          onSubmit={() => setEditingId(null)}
+                        />
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="message-content"
+                        initial={{ opacity: 0, scale: 0.98 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.98 }}
+                        transition={{ duration: 0.2 }}
+                        layout="position"
+                        className={cn(
+                          "leading-relaxed transition-all break-words",
+                          msg.role === "user"
+                            ? "max-w-[95%] sm:max-w-[85%] bg-zinc-100 text-zinc-900 px-4 md:px-5 py-2.5 md:py-3 rounded-2xl shadow-sm text-center text-[15px] md:text-[15.5px]"
+                            : "w-full max-w-none text-foreground/90 px-4 md:px-2 py-1"
+                        )}
+                      >
+                        <div className="flex flex-col gap-1">
+                          {/* Attachments Display */}
+                          {msg.attachments && msg.attachments.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {msg.attachments.map((att: any, i: number) => (
+                                <div key={i} className="rounded-lg overflow-hidden border border-black/10">
+                                  {att.type.startsWith('image/') ? (
+                                    <img src={att.url} alt="attachment" className="max-w-xs max-h-60 object-cover" />
+                                  ) : (
+                                    <a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-3 bg-black/5 hover:bg-black/10 transition-colors">
+                                      <div className="bg-white p-1 rounded">
+                                        <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                      </div>
+                                      <span className="text-sm font-medium underline">{att.name}</span>
+                                    </a>
+                                  )}
                                 </div>
-                              )})}
+                              ))}
                             </div>
                           )}
+                          
+                          {msg.role === "assistant" ? (
+                            <>
+                              {/* Display reasoning tokens if present */}
+                              {msg.reasoningContent && (
+                                <ReasoningBlock
+                                  content={msg.reasoningContent}
+                                  isStreaming={msg.status === "streaming"}
+                                />
+                              )}
 
-                          {msg.content && (
-                            <StreamingMessage 
-                              content={msg.content} 
-                              isStreaming={msg.status === "streaming"} 
-                            />
-                          )}
+                              {msg.toolCalls && msg.toolCalls.length > 0 && (
+                                <div className="flex flex-col gap-2 mb-2">
+                                  {msg.toolCalls.map((tc: any, i: number) => {
+                                    if (tc.function.name === 'search_web') {
+                                       const toolMsg = messages.find((m: any) => m.role === 'tool' && m.toolCallId === tc.id);
+                                       return <SearchToolResult key={i} isLoading={!toolMsg} result={toolMsg?.content} />
+                                    }
+                                    return (
+                                    <div key={i} className="text-xs bg-black/5 p-2 rounded border border-black/5 flex items-center gap-2 font-mono text-foreground/70">
+                                      <div className="w-2 h-2 rounded-full bg-blue-400" />
+                                      Used tool: {tc.function.name}
+                                    </div>
+                                  )})}
+                                </div>
+                              )}
 
-                          {msg.status === "streaming" && !msg.content.trim() && !msg.toolCalls && (
-                            <div className="flex items-center gap-2.5 text-foreground/60 py-2">
-                              <motion.div
-                                className="flex gap-1.5"
-                                initial={{ opacity: 0, scale: 0.8 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                transition={{ type: "spring", stiffness: 400, damping: 20 }}
-                              >
-                                {[0, 1, 2].map((i) => (
-                                  <motion.span
-                                    key={i}
-                                    className="w-2 h-2 bg-gradient-to-br from-t3-berry to-t3-berry-deep rounded-full shadow-sm"
-                                    animate={{ 
-                                      y: [0, -6, 0],
-                                      scale: [1, 1.15, 1],
-                                      opacity: [0.7, 1, 0.7]
-                                    }}
-                                    transition={{
-                                      repeat: Infinity,
-                                      duration: 0.7,
-                                      delay: i * 0.12,
-                                      ease: [0.4, 0, 0.2, 1],
-                                    }}
-                                  />
-                                ))}
-                              </motion.div>
-                              <span className="text-sm font-semibold tracking-tight">Thinking...</span>
+                              {msg.content && (
+                                <StreamingMessage 
+                                  content={msg.content} 
+                                  isStreaming={msg.status === "streaming"} 
+                                />
+                              )}
+
+                              {msg.status === "streaming" && !msg.content.trim() && !msg.toolCalls && (
+                                <div className="flex items-center gap-2.5 text-foreground/60 py-2">
+                                  <motion.div
+                                    className="flex gap-1.5"
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                                  >
+                                    {[0, 1, 2].map((i) => (
+                                      <motion.span
+                                        key={i}
+                                        className="w-2 h-2 bg-gradient-to-br from-t3-berry to-t3-berry-deep rounded-full shadow-sm"
+                                        animate={{ 
+                                          y: [0, -6, 0],
+                                          scale: [1, 1.15, 1],
+                                          opacity: [0.7, 1, 0.7]
+                                        }}
+                                        transition={{
+                                          repeat: Infinity,
+                                          duration: 0.7,
+                                          delay: i * 0.12,
+                                          ease: [0.4, 0, 0.2, 1],
+                                        }}
+                                      />
+                                    ))}
+                                  </motion.div>
+                                  <span className="text-sm font-semibold tracking-tight">Thinking...</span>
+                                </div>
+                              )}
+                            </>
+                          ) : msg.role === "tool" ? (
+                            msg.name === 'search_web' ? null : (
+                            <div className="text-xs bg-black/5 p-2 rounded border border-black/5 font-mono text-foreground/60 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                               Tool Output ({msg.name}): {msg.content}
                             </div>
+                            )
+                          ) : (
+                            <>
+                              <Markdown content={msg.content} />
+                              {msg.status === 'aborted' && (
+                                <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/5 border border-red-500/10">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-red-500/50 animate-pulse" />
+                                   <span className="text-[10px] font-medium text-red-500/70 uppercase tracking-wide">Generation Stopped</span>
+                                </div>
+                              )}
+                            </>
                           )}
-                        </>
-                      ) : msg.role === "tool" ? (
-                        msg.name === 'search_web' ? null : (
-                        <div className="text-xs bg-black/5 p-2 rounded border border-black/5 font-mono text-foreground/60 whitespace-pre-wrap max-h-32 overflow-y-auto">
-                           Tool Output ({msg.name}): {msg.content}
                         </div>
-                        )
-                      ) : (
-                        <>
-                          <Markdown content={msg.content} />
-                          {msg.status === 'aborted' && (
-                            <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/5 border border-red-500/10">
-                               <div className="w-1.5 h-1.5 rounded-full bg-red-500/50 animate-pulse" />
-                               <span className="text-[10px] font-medium text-red-500/70 uppercase tracking-wide">Generation Stopped</span>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-                )}
 
                 {/* Message Actions - Hidden during streaming to prevent jitter */}
                 {msg.status !== "streaming" && (

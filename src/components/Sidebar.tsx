@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type MouseEvent } from 'react'
-import { PanelLeft, Plus, Search, MessageSquare, Settings, LogIn, Pin, Trash2, Edit3, Share2, ExternalLink, Sparkles, Download, ChevronRight, X, Compass, Bookmark, Package, Ticket } from 'lucide-react'
+import { PanelLeft, Plus, Search, MessageSquare, Settings, LogIn, Pin, Trash2, Edit3, Share2, ExternalLink, Sparkles, Download, ChevronRight, X, Compass, Bookmark, Package, Ticket, ArrowUp } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
@@ -523,8 +523,11 @@ export const Sidebar = () => {
         </div>
       </motion.aside>
 
-      {/* Settings Action (Fixed Top Right) */}
-      <div className="fixed top-4 right-4 z-[100] px-2 py-1.5 rounded-xl bg-background/70 backdrop-blur-sm border border-black/5 shadow-sm">
+      {/* Settings & Primary Actions (Fixed Top Right) */}
+      <div className="fixed top-4 right-4 z-[100] flex items-center gap-1.5 px-2 py-1.5 rounded-xl bg-background/70 backdrop-blur-sm border border-black/5 shadow-sm">
+        <button className="p-1.5 rounded-lg hover:bg-black/10 transition-colors text-foreground/50">
+          <ArrowUp size={18} />
+        </button>
         <button className="p-1.5 rounded-lg hover:bg-black/10 transition-colors text-foreground/50">
           <Settings size={18} />
         </button>
