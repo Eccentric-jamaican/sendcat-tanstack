@@ -253,14 +253,19 @@ export function MessageEditInput({
         </AnimatePresence>
 
         {/* Text Input */}
-        <div className="px-4 py-3">
+        <div className={cn(
+          isMobile ? "px-3 pt-2 pb-1" : "px-5 pt-4 pb-2"
+        )}>
           <textarea
             ref={textareaRef}
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Edit your message..."
-            className="w-full bg-transparent border-none outline-none resize-none text-[15px] leading-relaxed placeholder-foreground/30 min-h-[24px] max-h-[200px]"
+            className={cn(
+              "w-full bg-transparent border-none outline-none resize-none text-[15px] placeholder-foreground/30 min-h-[24px] max-h-[200px]",
+              isMobile ? "leading-normal" : "leading-relaxed"
+            )}
             style={{ height: 'auto' }}
           />
         </div>
@@ -268,11 +273,11 @@ export function MessageEditInput({
         {/* Bottom Action Row - Responsive layout */}
         <div className={cn(
           "border-t border-black/5 bg-black/[0.02]",
-          isMobile ? "px-2 py-2" : "px-3 py-2"
+          isMobile ? "px-2 pt-1 pb-2" : "px-4 pt-1 pb-3"
         )}>
           <div className={cn(
-            "flex items-center gap-1.5",
-            isMobile ? "flex-wrap" : "justify-between"
+            "flex items-center gap-1.5 justify-between",
+            isMobile && "flex-wrap"
           )}>
             {/* Left side: Model picker and toggles */}
             <div className="flex items-center gap-1.5 flex-wrap">
