@@ -1,15 +1,15 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
-import { fetchOpenRouterModels, type AppModel } from '../lib/openrouter'
+import { fetchOpenRouterModels, type AppModel } from '../../lib/openrouter'
 import { ArrowUp, Paperclip, Globe, StopCircle, X, Brain } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { useMutation, useAction, useQuery } from "convex/react"
-import { api } from "../../convex/_generated/api"
+import { api } from "../../../convex/_generated/api"
 import { v4 as uuidv4 } from 'uuid'
 import { useNavigate } from "@tanstack/react-router"
 import { ModelPicker } from './ModelPicker'
-import { useIsMobile } from '../hooks/useIsMobile'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

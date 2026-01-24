@@ -4,9 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { useQuery, useMutation } from "convex/react"
-import { api } from "../../convex/_generated/api"
+import { api } from "../../../convex/_generated/api"
 import { useNavigate, useParams, Link } from "@tanstack/react-router"
-import { useIsMobile } from '../hooks/useIsMobile'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import { renderToStaticMarkup } from 'react-dom/server'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -20,7 +20,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-} from './ui/dropdown-menu'
+} from '../ui/dropdown-menu'
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { type Product } from "../data/mockProducts";
+import { type Product } from "../../data/mockProducts";
 import { motion } from "framer-motion";
 
 interface ProductCardProps {

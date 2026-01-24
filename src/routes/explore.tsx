@@ -1,9 +1,9 @@
 import { createFileRoute, Outlet } from '@tanstack/react-router'
-import { Sidebar } from '../components/Sidebar'
+import { Sidebar } from '../components/layout/Sidebar'
 import { useEffect, useState } from 'react'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { AnimatePresence } from 'framer-motion'
-import { ProductDrawer } from '../components/ProductDrawer'
+import { ProductDrawer } from '../components/product/ProductDrawer'
 
 type ExploreSearchParams = {
   productId?: string

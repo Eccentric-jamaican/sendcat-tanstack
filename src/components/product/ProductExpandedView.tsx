@@ -1,10 +1,10 @@
 import { motion } from "framer-motion";
 import { X, LayoutGrid, List } from "lucide-react";
 import { useState } from "react";
-import { MOCK_PRODUCTS } from "../data/mockProducts";
+import { MOCK_PRODUCTS } from "../../data/mockProducts";
 import { ProductCard } from "./ProductCard";
 import { ProductTable } from "./ProductTable";
-import { Checkbox } from "./ui/checkbox";
+import { Checkbox } from "../ui/checkbox";
 
 interface ProductExpandedViewProps {
   onClose: () => void;

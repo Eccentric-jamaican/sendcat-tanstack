@@ -1,4 +1,4 @@
-import { type Product } from "../data/mockProducts";
+import { type Product } from "../../data/mockProducts";
 import { Checkbox } from "@/components/ui/checkbox";
 
 interface ProductTableProps {

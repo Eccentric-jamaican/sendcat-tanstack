@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { MOCK_PRODUCTS } from "../data/mockProducts";
+import { MOCK_PRODUCTS } from "../../data/mockProducts";
 import { X, MessageSquare, Send, Star } from "lucide-react";
 import { useEffect } from "react";
 

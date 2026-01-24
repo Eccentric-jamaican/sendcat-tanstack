@@ -1,13 +1,11 @@
-import { MOCK_PRODUCTS } from "../data/mockProducts";
+import { MOCK_PRODUCTS } from "../../data/mockProducts";
 import { ProductCard } from "./ProductCard";
-import { useIsMobile } from "../hooks/useIsMobile";
 
 interface ProductGridProps {
   onViewMore?: () => void;
 }
 
 export function ProductGrid({ onViewMore }: ProductGridProps) {
-  const isMobile = useIsMobile();
 
   return (
     <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4 sm:py-8">
