@@ -26,6 +26,7 @@ function ExplorePage() {
   const getExploreItems = useAction(api.explore.getExploreItems);
   const [shopSections, setShopSections] = useState<ShopSection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const currentYear = new Date().getFullYear();
 
   useEffect(() => {
     const fetchSections = async () => {
@@ -237,7 +238,7 @@ function ExplorePage() {
       </main>
 
       <footer className="border-t border-black/5 py-12 text-center text-sm text-foreground/30">
-        &copy; 2024 Sendcat. Discover curated inspiration.
+        &copy; {currentYear} Sendcat. Discover curated inspiration.
       </footer>
     </>
   );
