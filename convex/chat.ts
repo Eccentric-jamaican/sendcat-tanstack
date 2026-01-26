@@ -34,7 +34,7 @@ const TOOLS = [
         type: 'object',
         properties: {
           query: { type: 'string', description: 'The product search query' },
-          limit: { type: 'number', description: 'Number of results (max 10)', default: 6 },
+          limit: { type: 'number', description: 'Number of results (max 36)', default: 36 },
         },
         required: ['query'],
       },
@@ -91,6 +91,8 @@ export const streamAnswer = action({
     let activeController: AbortController | null = null
     let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null
     let lastAbortCheck = Date.now()
+    const toolResultsCache = new Map<string, string>()
+    const toolUsageCounts = new Map<string, number>()
 
     const checkAbortStatus = async () => {
       if (!currentMessageId || isAborted) return
@@ -386,7 +388,6 @@ export const streamAnswer = action({
           })
 
           // Execute Tools with Deduplication and Caching
-          const toolResultsCache = new Map<string, string>()
 
           for (const tc of accumulatedToolCalls) {
             const name = tc.function.name
@@ -401,6 +402,8 @@ export const streamAnswer = action({
               result = toolResultsCache.get(cacheKey)!
             } else {
               try {
+                const usageCount = (toolUsageCounts.get(name) ?? 0) + 1
+                toolUsageCounts.set(name, usageCount)
                 const argsObj = JSON.parse(argsStr)
                 if (name === 'get_current_time') {
                   result = new Date().toLocaleString()
@@ -426,18 +429,25 @@ export const streamAnswer = action({
                     }
                   }
                 } else if (name === 'search_ebay') {
-                  const items = await searchEbayItems(argsObj.query, argsObj.limit || 6)
+                  if (usageCount > 1) {
+                    result = 'Skipped duplicate eBay search to control costs.'
+                  } else {
+                    const items = await searchEbayItems(
+                      argsObj.query,
+                      Math.min(36, argsObj.limit || 36),
+                    )
 
-                  if (process.env.EBAY_ENV !== 'production') {
-                    console.log(`eBay found ${items.length} items for "${argsObj.query}"`)
+                    if (process.env.EBAY_ENV !== 'production') {
+                      console.log(`eBay found ${items.length} items for "${argsObj.query}"`)
+                    }
+
+                    result = `I found ${items.length} items on eBay. They have been displayed to the user.`
+
+                    await ctx.runMutation(api.messages.saveProducts, {
+                      messageId: currentMessageId!,
+                      products: items,
+                    })
                   }
-
-                  result = `I found ${items.length} items on eBay. They have been displayed to the user.`
-
-                  await ctx.runMutation(api.messages.saveProducts, {
-                    messageId: currentMessageId!,
-                    products: items,
-                  })
                 }
 
                 // Cache the result for this specific turn

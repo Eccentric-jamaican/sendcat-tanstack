@@ -1,10 +1,19 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useAction } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import { ProductGrid } from '../components/product/ProductGrid'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Search } from 'lucide-react'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '../components/ui/pagination'
 
 type SearchParams = {
   q?: string
@@ -23,6 +32,13 @@ function SearchResults() {
   const searchAction = useAction(api.explore.getExploreItems)
   const [items, setItems] = useState<any[] | undefined>(undefined)
   const [isLoading, setIsLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const pageSize = 12
+  const totalPages = Math.max(1, Math.ceil((items?.length ?? 0) / pageSize))
+
+  useEffect(() => {
+    setPage(1)
+  }, [q, items?.length])
 
   useEffect(() => {
     async function fetchResults() {
@@ -31,7 +47,7 @@ function SearchResults() {
         const results = await searchAction({ q: q || undefined })
         setItems(results)
       } catch (err) {
-        console.error("Search failed:", err)
+        console.error('Search failed:', err)
         setItems([])
       } finally {
         setIsLoading(false)
@@ -43,15 +59,40 @@ function SearchResults() {
   // We should update convex/explore.ts to handle this properly, but let's see what it does
   // Actually, I'll update explore.ts to handle a 'q' argument properly.
 
+  const paginatedItems = useMemo(() => {
+    if (!items) return []
+    const start = (page - 1) * pageSize
+    return items.slice(start, start + pageSize)
+  }, [items, page, pageSize])
+
+  const paginationItems = useMemo(() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1)
+    }
+
+    const entries: Array<number | 'ellipsis'> = [1]
+    const start = Math.max(2, page - 1)
+    const end = Math.min(totalPages - 1, page + 1)
+
+    if (start > 2) entries.push('ellipsis')
+    for (let i = start; i <= end; i += 1) entries.push(i)
+    if (end < totalPages - 1) entries.push('ellipsis')
+    entries.push(totalPages)
+
+    return entries
+  }, [page, totalPages])
+
   return (
-    <div className="flex-1 flex flex-col min-h-screen">
-      <main className={`flex-1 max-w-6xl mx-auto w-full px-4 pb-24 ${isMobile ? 'pt-16' : 'pt-12'}`}>
+    <div className="flex min-h-screen flex-1 flex-col">
+      <main
+        className={`mx-auto w-full max-w-6xl flex-1 px-4 pb-24 ${isMobile ? 'pt-16' : 'pt-12'}`}
+      >
         {/* Filter Chips - Part of the page content */}
-        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide py-4 -mx-4 px-4 border-b border-black/5 mb-6">
-          {['Ratings', 'Gender', 'Price', 'Condition', 'Size', 'Color'].map(filter => (
-            <button 
+        <div className="scrollbar-hide -mx-4 mb-6 flex items-center gap-2 overflow-x-auto border-b border-black/5 px-4 py-4">
+          {['Ratings', 'Gender', 'Price', 'Condition', 'Size', 'Color'].map((filter) => (
+            <button
               key={filter}
-              className="px-4 py-1.5 rounded-full bg-black/5 border border-black/5 hover:bg-black/10 transition-colors text-xs font-semibold whitespace-nowrap flex-shrink-0"
+              className="flex-shrink-0 rounded-full border border-black/5 bg-black/5 px-4 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors hover:bg-black/10"
             >
               {filter}
             </button>
@@ -59,26 +100,60 @@ function SearchResults() {
         </div>
 
         {isLoading ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 animate-pulse">
+          <div className="grid animate-pulse grid-cols-2 gap-4 md:grid-cols-3 md:gap-6 lg:grid-cols-4">
             {[...Array(8)].map((_, i) => (
-              <div key={i} className="aspect-[3/4] bg-black/5 rounded-[32px]" />
+              <div key={i} className="aspect-[3/4] rounded-[32px] bg-black/5" />
             ))}
           </div>
         ) : items && items.length > 0 ? (
-          <ProductGrid 
-            products={items} 
-            title="Search results for"
-            subtitle={`“${q}”`}
-          />
+          <div className="space-y-8">
+            <ProductGrid products={paginatedItems} title="Search results for" subtitle={`“${q}”`} />
+
+            {totalPages > 1 && (
+              <div className="pb-10">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                        disabled={page === 1}
+                      />
+                    </PaginationItem>
+
+                    {paginationItems.map((item, index) => (
+                      <PaginationItem key={`${item}-${index}`}>
+                        {item === 'ellipsis' ? (
+                          <PaginationEllipsis />
+                        ) : (
+                          <PaginationLink isActive={item === page} onClick={() => setPage(item)}>
+                            {item}
+                          </PaginationLink>
+                        )}
+                      </PaginationItem>
+                    ))}
+
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                        disabled={page === totalPages}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
+          </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-             <div className="p-6 rounded-full bg-black/5 text-foreground/20">
-                <Search size={48} />
-             </div>
-             <div>
-                <h3 className="text-xl font-bold">No results found</h3>
-                <p className="text-foreground/50">Try searching for something else, like "hoodies" or "tech".</p>
-             </div>
+          <div className="flex flex-col items-center justify-center space-y-4 py-20 text-center">
+            <div className="text-foreground/20 rounded-full bg-black/5 p-6">
+              <Search size={48} />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold">No results found</h3>
+              <p className="text-foreground/50">
+                Try searching for something else, like "hoodies" or "tech".
+              </p>
+            </div>
           </div>
         )}
       </main>
