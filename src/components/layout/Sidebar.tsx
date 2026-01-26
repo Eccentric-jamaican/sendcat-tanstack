@@ -560,9 +560,12 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
         <button className="p-1.5 rounded-lg hover:bg-black/10 transition-colors text-foreground/50">
           <ArrowUp size={18} />
         </button>
-        <button className="p-1.5 rounded-lg hover:bg-black/10 transition-colors text-foreground/50">
+        <Link 
+          to="/settings"
+          className="p-1.5 rounded-lg hover:bg-black/10 transition-colors text-foreground/50 [&.active]:text-primary [&.active]:bg-primary/5"
+        >
           <Settings size={18} />
-        </button>
+        </Link>
       </div>
     </>
   )
