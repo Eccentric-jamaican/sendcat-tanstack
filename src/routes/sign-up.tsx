@@ -93,6 +93,8 @@ function SignUp() {
     { text: 'Contains a number', met: /\d/.test(password) },
   ]
 
+  const isPasswordValid = passwordRequirements.every((req) => req.met)
+
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
       <div className="edge-glow-top opacity-50" />
@@ -193,7 +195,7 @@ function SignUp() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !isPasswordValid}
               className="relative w-full overflow-hidden rounded-2xl bg-primary p-4 text-sm font-semibold text-primary-foreground transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
             >
               {loading ? (
