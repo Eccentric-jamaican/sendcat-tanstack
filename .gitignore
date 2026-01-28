@@ -5,6 +5,7 @@ dist-ssr
 *.local
 count.txt
 .env
+trace-local.json
 .nitro
 .tanstack
 .wrangler
