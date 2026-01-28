@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from "uuid";
 import { useNavigate } from "@tanstack/react-router";
 import { ModelPicker } from "./ModelPicker";
 import { useIsMobile } from "../../hooks/useIsMobile";
+import { authClient } from "../../lib/auth";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -106,10 +107,13 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const streamAnswer = useAction(api.chat.streamAnswer);
     const abortLatestInThread = useMutation(api.messages.abortLatestInThread);
     const generateUploadUrl = useMutation(api.messages.generateUploadUrl);
+    const { isPending: isAuthPending } = authClient.useSession();
     const effectiveThreadId = threadId ?? existingThreadId ?? null;
     const isThreadStreaming = useQuery(
       api.messages.isThreadStreaming,
-      effectiveThreadId ? { threadId: effectiveThreadId as any, sessionId } : "skip",
+      effectiveThreadId && !isAuthPending
+        ? { threadId: effectiveThreadId as any, sessionId }
+        : "skip",
     );
 
     useEffect(() => {

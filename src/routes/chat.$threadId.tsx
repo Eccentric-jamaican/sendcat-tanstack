@@ -4,6 +4,7 @@ import { useIsMobile } from "../hooks/useIsMobile";
 import { ChatInput, type ChatInputHandle } from "../components/chat/ChatInput";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { authClient } from "../lib/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageSquare,
@@ -91,12 +92,19 @@ function ChatPage() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
 
+  // Wait for auth session to load before querying messages
+  const { isPending: isAuthPending } = authClient.useSession();
+
   // Get sessionId for ownership verification
   const sessionId = typeof window !== "undefined"
     ? localStorage.getItem("t3_session_id") || undefined
     : undefined;
 
-  const messages = useQuery(api.messages.list, { threadId: threadId as any, sessionId });
+  // Skip query while auth is loading to prevent "Access denied" on reload
+  const messages = useQuery(
+    api.messages.list,
+    isAuthPending ? "skip" : { threadId: threadId as any, sessionId }
+  );
   const deleteAfter = useMutation(api.messages.deleteAfter);
   const streamAnswer = useAction(api.chat.streamAnswer);
   const createThread = useMutation(api.threads.create);
