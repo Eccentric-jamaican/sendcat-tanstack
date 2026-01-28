@@ -1,7 +1,5 @@
 import { useMemo } from 'react';
-import { useSmoothStreaming } from '../../hooks/useSmoothStreaming';
 import { Markdown } from './Markdown';
-import { AnimatedStreamingText } from './AnimatedStreamingText';
 
 interface StreamingMessageProps {
   content: string;
@@ -9,27 +7,27 @@ interface StreamingMessageProps {
 }
 
 export const StreamingMessage = ({ content, isStreaming }: StreamingMessageProps) => {
-  const smoothContent = useSmoothStreaming(content, isStreaming);
-
-  // Memoize the rendered content
+  // During streaming: plain text for maximum speed (like ChatGPT/Claude)
+  // After streaming: full Markdown rendering
   const renderedContent = useMemo(() => {
     if (isStreaming) {
-      // Use animated text with fade trail during streaming
-      return <AnimatedStreamingText content={smoothContent} isStreaming={isStreaming} />;
+      // Plain text with basic whitespace handling - no heavy parsing
+      return (
+        <div className="prose max-w-none dark:prose-invert whitespace-pre-wrap break-words">
+          {content}
+          <span className="inline-block w-2 h-4 ml-0.5 bg-foreground/70 animate-pulse" />
+        </div>
+      );
     }
-    // Use regular markdown when not streaming
-    return <Markdown content={smoothContent} />;
-  }, [smoothContent, isStreaming]);
+    // Full markdown rendering only when complete
+    return <Markdown content={content} />;
+  }, [content, isStreaming]);
 
   return (
     <div
       style={{
-        // GPU acceleration hints during streaming
-        willChange: isStreaming ? 'contents, opacity' : 'auto',
-        // CSS containment to isolate reflows
-        contain: isStreaming ? 'layout style paint' : 'none',
-        // Force GPU layer
-        transform: 'translateZ(0)',
+        // Minimal style during streaming for performance
+        contain: isStreaming ? 'layout style' : 'none',
       }}
     >
       {renderedContent}
