@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type MouseEvent } from "react";
+import { v4 as uuidv4 } from "uuid";
 import {
   PanelLeft,
   Plus,
@@ -447,7 +448,11 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sessionId] = useState(() => {
     if (typeof window === "undefined") return "";
-    return localStorage.getItem("t3_session_id") || "";
+    const saved = localStorage.getItem("t3_session_id");
+    if (saved) return saved;
+    const newId = uuidv4();
+    localStorage.setItem("t3_session_id", newId);
+    return newId;
   });
 
   useEffect(() => {

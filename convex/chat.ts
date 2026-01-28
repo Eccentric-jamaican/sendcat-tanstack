@@ -443,6 +443,11 @@ export const streamAnswer = action({
           const wasAborted = await flushContentBuffer();
           if (wasAborted) {
             isAborted = true;
+          } else if (contentBuffer) {
+            // Flush failed (buffer wasn't cleared) — content is incomplete,
+            // don't mark the message as completed
+            console.error("Final content flush failed, marking message as error");
+            isAborted = true;
           }
         }
 
