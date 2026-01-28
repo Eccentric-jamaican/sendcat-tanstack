@@ -8,6 +8,29 @@ import authConfig from "./auth.config";
 // AuthFunctions must reference the auth module for triggers to work
 const authFunctions: AuthFunctions = internal.auth;
 
+// PII redaction helpers - masks sensitive data in logs
+const maskEmail = (email: string): string => {
+  if (!email || !email.includes("@")) return "***";
+  const [local, domain] = email.split("@");
+  const maskedLocal = local.length > 2
+    ? `${local[0]}***${local[local.length - 1]}`
+    : "***";
+  return `${maskedLocal}@${domain}`;
+};
+
+const maskName = (name: string | null | undefined): string => {
+  if (!name) return "***";
+  return name.length > 2 ? `${name[0]}***` : "***";
+};
+
+const truncateId = (id: string): string => {
+  if (!id) return "***";
+  return id.length > 8 ? `${id.slice(0, 4)}...${id.slice(-4)}` : id;
+};
+
+// Only emit verbose logs in development (set CONVEX_DEBUG_LOGS=true in Convex dashboard)
+const isDebugMode = process.env.CONVEX_DEBUG_LOGS === "true";
+
 /**
  * The auth component client - provides adapter, route registration, and helper methods.
  * Includes triggers to sync Better Auth users to the app's profiles table.
@@ -17,32 +40,38 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
   triggers: {
     user: {
       onCreate: async (ctx, doc) => {
-        console.log("[AUTH TRIGGER] onCreate - New user registered:", {
-          userId: doc._id,
-          email: doc.email,
-          name: doc.name,
-          timestamp: new Date().toISOString(),
-        });
+        if (isDebugMode) {
+          console.log("[AUTH TRIGGER] onCreate - New user registered:", {
+            userId: truncateId(doc._id),
+            email: maskEmail(doc.email),
+            name: maskName(doc.name),
+            timestamp: new Date().toISOString(),
+          });
+        }
         const profileId = await ctx.db.insert("profiles", {
           sessionId: `auth-${doc._id}`,
           userId: doc._id,
           email: doc.email,
           fullName: doc.name ?? doc.email.split("@")[0],
         });
-        console.log("[AUTH TRIGGER] onCreate - Profile created:", {
-          profileId,
-          userId: doc._id,
-        });
+        if (isDebugMode) {
+          console.log("[AUTH TRIGGER] onCreate - Profile created:", {
+            profileId: truncateId(profileId),
+            userId: truncateId(doc._id),
+          });
+        }
       },
       onUpdate: async (ctx, newDoc, oldDoc) => {
-        console.log("[AUTH TRIGGER] onUpdate - User updated:", {
-          userId: newDoc._id,
-          changes: {
-            email: oldDoc.email !== newDoc.email ? `${oldDoc.email} -> ${newDoc.email}` : "unchanged",
-            name: oldDoc.name !== newDoc.name ? `${oldDoc.name} -> ${newDoc.name}` : "unchanged",
-          },
-          timestamp: new Date().toISOString(),
-        });
+        if (isDebugMode) {
+          console.log("[AUTH TRIGGER] onUpdate - User updated:", {
+            userId: truncateId(newDoc._id),
+            changes: {
+              email: oldDoc.email !== newDoc.email ? `${maskEmail(oldDoc.email)} -> ${maskEmail(newDoc.email)}` : "unchanged",
+              name: oldDoc.name !== newDoc.name ? `${maskName(oldDoc.name)} -> ${maskName(newDoc.name)}` : "unchanged",
+            },
+            timestamp: new Date().toISOString(),
+          });
+        }
         if (newDoc.email !== oldDoc.email || newDoc.name !== oldDoc.name) {
           const existing = await ctx.db
             .query("profiles")
@@ -53,33 +82,39 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
               email: newDoc.email,
               fullName: newDoc.name ?? existing.fullName,
             });
-            console.log("[AUTH TRIGGER] onUpdate - Profile synced:", {
-              profileId: existing._id,
-              userId: newDoc._id,
-            });
-          } else {
-            console.log("[AUTH TRIGGER] onUpdate - No profile found for user:", newDoc._id);
+            if (isDebugMode) {
+              console.log("[AUTH TRIGGER] onUpdate - Profile synced:", {
+                profileId: truncateId(existing._id),
+                userId: truncateId(newDoc._id),
+              });
+            }
+          } else if (isDebugMode) {
+            console.log("[AUTH TRIGGER] onUpdate - No profile found for user:", truncateId(newDoc._id));
           }
         }
       },
       onDelete: async (ctx, doc) => {
-        console.log("[AUTH TRIGGER] onDelete - User deleted:", {
-          userId: doc._id,
-          email: doc.email,
-          timestamp: new Date().toISOString(),
-        });
+        if (isDebugMode) {
+          console.log("[AUTH TRIGGER] onDelete - User deleted:", {
+            userId: truncateId(doc._id),
+            email: maskEmail(doc.email),
+            timestamp: new Date().toISOString(),
+          });
+        }
         const existing = await ctx.db
           .query("profiles")
           .withIndex("by_user", (q) => q.eq("userId", doc._id))
           .unique();
         if (existing) {
           await ctx.db.delete(existing._id);
-          console.log("[AUTH TRIGGER] onDelete - Profile deleted:", {
-            profileId: existing._id,
-            userId: doc._id,
-          });
-        } else {
-          console.log("[AUTH TRIGGER] onDelete - No profile found for user:", doc._id);
+          if (isDebugMode) {
+            console.log("[AUTH TRIGGER] onDelete - Profile deleted:", {
+              profileId: truncateId(existing._id),
+              userId: truncateId(doc._id),
+            });
+          }
+        } else if (isDebugMode) {
+          console.log("[AUTH TRIGGER] onDelete - No profile found for user:", truncateId(doc._id));
         }
       },
     },

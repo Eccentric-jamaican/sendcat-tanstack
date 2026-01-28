@@ -95,8 +95,11 @@ export const streamAnswer = action({
     webSearch: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<Id<"messages"> | null> => {
-    const ABORT_POLL_MS = 250;
+    const ABORT_POLL_MS = 100; // Reduced from 250ms for snappier response
     const MAX_CYCLES = 5;
+    const BUFFER_FLUSH_SIZE = 80; // Flush after ~80 characters
+    const BUFFER_FLUSH_MS = 150; // Or flush every 150ms
+
     let cycle = 0;
     let currentMessageId: Id<"messages"> | null = null;
     let currentSessionId: Id<"streamSessions"> | null = args.sessionId ?? null;
@@ -107,6 +110,24 @@ export const streamAnswer = action({
     let lastAbortCheck = Date.now();
     const toolResultsCache = new Map<string, string>();
     const toolUsageCounts = new Map<string, number>();
+
+    // Content buffering for reduced DB writes
+    let contentBuffer = "";
+    let lastFlushTime = Date.now();
+
+    // Flush buffered content to database
+    const flushContentBuffer = async (): Promise<boolean> => {
+      if (!contentBuffer || !currentMessageId) return false;
+      const contentToFlush = contentBuffer;
+      contentBuffer = "";
+      lastFlushTime = Date.now();
+
+      const result = await ctx.runMutation(api.messages.appendContent, {
+        messageId: currentMessageId,
+        content: contentToFlush,
+      });
+      return result.aborted;
+    };
 
     const checkAbortStatus = async () => {
       if (!currentMessageId || isAborted) return;
@@ -370,23 +391,26 @@ export const streamAnswer = action({
                   accumulatedReasoning += delta.reasoning;
                 }
 
-                // Handle Content - check if aborted via mutation return value
+                // Handle Content - buffer tokens and flush periodically
                 if (delta?.content) {
-                  const result = await ctx.runMutation(
-                    api.messages.appendContent,
-                    {
-                      messageId: currentMessageId,
-                      content: delta.content,
-                    },
-                  );
-                  if (result.aborted) {
-                    console.log("Aborting stream - message was aborted");
-                    isAborted = true;
-                    controller.abort();
-                    try {
-                      await reader.cancel();
-                    } catch {}
-                    break streamLoop;
+                  contentBuffer += delta.content;
+
+                  // Flush if buffer is large enough or enough time has passed
+                  const shouldFlush =
+                    contentBuffer.length >= BUFFER_FLUSH_SIZE ||
+                    Date.now() - lastFlushTime >= BUFFER_FLUSH_MS;
+
+                  if (shouldFlush) {
+                    const wasAborted = await flushContentBuffer();
+                    if (wasAborted) {
+                      console.log("Aborting stream - message was aborted");
+                      isAborted = true;
+                      controller.abort();
+                      try {
+                        await reader.cancel();
+                      } catch {}
+                      break streamLoop;
+                    }
                   }
                 }
 
@@ -401,6 +425,14 @@ export const streamAnswer = action({
                 // JSON parse errors are expected for malformed chunks, skip them
               }
             }
+          }
+        }
+
+        // Flush any remaining buffered content before post-processing
+        if (contentBuffer && !isAborted) {
+          const wasAborted = await flushContentBuffer();
+          if (wasAborted) {
+            isAborted = true;
           }
         }
 
