@@ -100,6 +100,14 @@ export const { getAuthUser, safeGetAuthUser } = authComponent;
 export const createAuth: CreateAuth<DataModel> = (ctx) => {
   return betterAuth({
     database: authComponent.adapter(ctx),
+    session: {
+      expiresIn: 60 * 60 * 24 * 7, // 7 days
+      updateAge: 60 * 60 * 24, // Update session every 24 hours
+      cookieCache: {
+        enabled: true,
+        maxAge: 60 * 5, // 5 minutes cache
+      },
+    },
     emailAndPassword: {
       enabled: true,
     },
