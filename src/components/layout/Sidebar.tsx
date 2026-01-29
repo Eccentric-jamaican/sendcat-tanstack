@@ -636,13 +636,17 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
                 />
                 <span>Saved items</span>
               </button>
-              <button className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium text-foreground/75 transition-all hover:bg-black/[0.03] hover:text-foreground">
+              <Link
+                to="/pre-alerts"
+                className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium text-foreground/75 transition-all hover:bg-black/[0.03] hover:text-foreground [&.active]:bg-black/[0.05] [&.active]:text-foreground"
+                activeProps={{ className: "active" }}
+              >
                 <Package
                   size={16}
-                  className="text-foreground/40 transition-colors group-hover:text-foreground"
+                  className="text-foreground/40 transition-colors group-hover:text-foreground group-[.active]:text-foreground"
                 />
-                <span>My orders</span>
-              </button>
+                <span>Pre-alerts</span>
+              </Link>
               <button className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13.5px] font-medium text-foreground/75 transition-all hover:bg-black/[0.03] hover:text-foreground">
                 <Ticket
                   size={16}
