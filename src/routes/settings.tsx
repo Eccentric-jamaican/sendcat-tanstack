@@ -1,8 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useSearch } from '@tanstack/react-router'
 import { Sidebar } from '../components/layout/Sidebar'
 import { useEffect, useState } from 'react'
-import { useQuery, useMutation } from 'convex/react'
+import { useQuery, useMutation, useAction } from 'convex/react'
 import { api } from '../../convex/_generated/api'
+import { authClient } from '../lib/auth'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { toast } from 'sonner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
@@ -13,7 +14,7 @@ import { Button } from '../components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { DatePicker } from '../components/ui/date-picker'
 import { motion } from 'framer-motion'
-import { User, Shield, Link2, Gift, Mail, MapPin } from 'lucide-react'
+import { User, Shield, Link2, Gift, Mail, MapPin, RefreshCw, Loader2, Copy, Check } from 'lucide-react'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
@@ -38,21 +39,152 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+const SUPPORTED_TABS = ['profile', 'security', 'connections', 'rewards', 'contact'] as const
+const SUPPORTED_GMAIL_STATES = ['connected', 'error', 'expired', 'reauth'] as const
+
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    tab: SUPPORTED_TABS.includes(search.tab as typeof SUPPORTED_TABS[number])
+      ? (search.tab as string)
+      : undefined,
+    gmail: SUPPORTED_GMAIL_STATES.includes(search.gmail as typeof SUPPORTED_GMAIL_STATES[number])
+      ? (search.gmail as string)
+      : undefined,
+  }),
 })
 
 function SettingsPage() {
   const isMobile = useIsMobile()
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
+  const search = useSearch({ from: '/settings' })
+  const navigate = useNavigate({ from: '/settings' })
   const [sessionId] = useState(() => {
     if (typeof window === 'undefined') return ""
     return localStorage.getItem('t3_session_id') || ""
   })
 
+  // Auth session for userId
+  const { data: authSession } = authClient.useSession()
+  const currentUserId = authSession?.user?.id ?? null
+
   // Profile data
   const profile = useQuery(api.profiles.get, { sessionId })
   const updateProfile = useMutation(api.profiles.update)
+
+  // Integration status
+  const gmailStatus = useQuery(api.integrations.gmail.connection.getStatus)
+  const disconnectGmail = useMutation(api.integrations.gmail.connection.disconnect)
+  const triggerGmailSync = useAction(api.integrations.gmail.connection.triggerSync)
+  const startGmailOAuth = useAction(api.integrations.gmail.connection.startOAuth)
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  const whatsappStatus = useQuery(api.integrations.whatsapp.getLinkingStatus)
+  const requestLinkingCode = useMutation(api.integrations.whatsapp.requestLinkingCode)
+  const disconnectWhatsapp = useMutation(api.integrations.whatsapp.disconnectWhatsapp)
+  const [linkingCode, setLinkingCode] = useState<string | null>(null)
+  const [codeCopied, setCodeCopied] = useState(false)
+
+  const preferences = useQuery(api.integrations.preferences.get)
+  const updatePreferences = useMutation(api.integrations.preferences.update)
+
+  // Handle post-OAuth redirect toasts
+  useEffect(() => {
+    if (!search.gmail) return
+
+    if (search.gmail === 'connected') {
+      toast.success("Gmail connected successfully! Initial sync started.")
+    } else if (search.gmail === 'error') {
+      toast.error("Failed to connect Gmail. Please try again.")
+    } else if (search.gmail === 'expired') {
+      toast.error("Connection attempt expired. Please try again.")
+    } else if (search.gmail === 'reauth') {
+      toast.error("Gmail requires re-authentication. Please try again.")
+    }
+
+    // Clear the gmail param so the toast doesn't reappear on navigation
+    navigate({ search: { ...search, gmail: undefined }, replace: true })
+  }, [search.gmail])
+
+  // Set linking code from WhatsApp status
+  useEffect(() => {
+    if (whatsappStatus && !whatsappStatus.linked && whatsappStatus.linkingCode) {
+      setLinkingCode(whatsappStatus.linkingCode)
+    }
+  }, [whatsappStatus])
+
+  const handleConnectGmail = async () => {
+    if (!currentUserId) {
+      toast.error("Please sign in first")
+      return
+    }
+    try {
+      const authUrl = await startGmailOAuth({})
+      window.location.href = authUrl
+    } catch {
+      toast.error("Failed to start Gmail connection")
+    }
+  }
+
+  const handleDisconnectGmail = async () => {
+    try {
+      await disconnectGmail({})
+      toast.success("Gmail disconnected")
+    } catch {
+      toast.error("Failed to disconnect Gmail")
+    }
+  }
+
+  const handleSyncGmail = async () => {
+    setIsSyncing(true)
+    try {
+      const result = await triggerGmailSync({})
+      const created = result?.draftsCreated ?? 0
+      const updated = (result as { draftsUpdated?: number })?.draftsUpdated ?? 0
+      const parts: string[] = []
+      if (created) parts.push(`${created} drafts created`)
+      if (updated) parts.push(`${updated} drafts updated`)
+      if (!parts.length) parts.push("no drafts created")
+      toast.success(`Synced: ${parts.join(", ")}`)
+    } catch {
+      toast.error("Sync failed")
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  const handleRequestLinkingCode = async () => {
+    try {
+      const code = await requestLinkingCode({})
+      setLinkingCode(code)
+      toast.success("Linking code generated")
+    } catch {
+      toast.error("Failed to generate linking code")
+    }
+  }
+
+  const handleCopyCode = async () => {
+    if (linkingCode) {
+      try {
+        await navigator.clipboard.writeText(linkingCode)
+        setCodeCopied(true)
+        setTimeout(() => setCodeCopied(false), 2000)
+      } catch (err) {
+        console.error("[Settings] Clipboard write failed:", err)
+        toast.error("Failed to copy code to clipboard")
+      }
+    }
+  }
+
+  const handleDisconnectWhatsapp = async () => {
+    try {
+      await disconnectWhatsapp({})
+      setLinkingCode(null)
+      toast.success("WhatsApp disconnected")
+    } catch {
+      toast.error("Failed to disconnect WhatsApp")
+    }
+  }
 
   // Local state for profile fields
   const [fullName, setFullName] = useState("")
@@ -141,7 +273,7 @@ function SettingsPage() {
               Manage your account settings and preferences.
             </p>
 
-            <Tabs defaultValue="profile" className="w-full">
+            <Tabs defaultValue={search.tab || "profile"} className="w-full">
               <TabsList className="mb-8 flex flex-nowrap h-auto gap-2 bg-transparent p-0 justify-start overflow-x-auto scrollbar-hide pb-2">
                 <TabsTrigger value="profile" className="gap-2 data-[state=active]:bg-primary data-[state=active]:text-white shrink-0">
                   <User size={16} />
@@ -359,52 +491,154 @@ function SettingsPage() {
                 </Card>
               </TabsContent>
 
-              <TabsContent value="connections">
+              <TabsContent value="connections" className="space-y-6">
                 <Card>
                   <CardHeader>
                     <CardTitle>Connections</CardTitle>
-                    <CardDescription>Manage your connected third-party accounts.</CardDescription>
+                    <CardDescription>Manage your connected third-party accounts and integrations.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {[
-                      { 
-                        name: 'Google', 
-                        icon: (
-                          <svg viewBox="0 0 24 24" className="w-5 h-5">
+                    {/* Gmail Connection */}
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 p-4 rounded-xl bg-black/[0.02] border border-black/5">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-bold text-xs border border-black/5 shrink-0">
+                          <svg viewBox="0 0 24 24" className="w-5 h-5" aria-hidden="true">
                             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                             <path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.83z"/>
                             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.83c.87-2.6 3.3-4.52 6.16-4.52z"/>
                           </svg>
-                        ), 
-                        status: 'Connected', 
-                        email: 'user@gmail.com' 
-                      },
-                      { 
-                        name: 'WhatsApp', 
-                        icon: (
-                          <svg viewBox="0 0 24 24" className="w-5 h-5 fill-[#25D366]">
-                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                          </svg>
-                        ), 
-                        status: 'Not Connected' 
-                      },
-                    ].map((conn) => (
-                      <div key={conn.name} className="flex items-center justify-between p-4 rounded-xl bg-black/[0.02] border border-black/5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-bold text-xs border border-black/5">
-                            {conn.icon}
-                          </div>
-                          <div>
-                            <p className="font-bold text-sm">{conn.name}</p>
-                            <p className="text-xs text-foreground/50">{conn.email || conn.status}</p>
-                          </div>
                         </div>
-                        <Button variant={conn.status === 'Connected' ? 'outline' : 'secondary'} size="sm">
-                          {conn.status === 'Connected' ? 'Disconnect' : 'Connect'}
+                        <div className="min-w-0">
+                          <p className="font-bold text-sm">Gmail</p>
+                          {gmailStatus?.connected ? (
+                            <div className="min-w-0">
+                              <p className="text-xs text-foreground/50 truncate max-w-full sm:max-w-[240px]">{gmailStatus.email}</p>
+                              {gmailStatus.lastSyncAt && (
+                                <p className="text-xs text-foreground/30">
+                                  Last synced: {new Date(gmailStatus.lastSyncAt).toLocaleString()}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-foreground/50">Not connected</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 sm:mt-1 self-end sm:self-start">
+                        {gmailStatus?.connected && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleSyncGmail}
+                            disabled={isSyncing}
+                          >
+                            {isSyncing ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={14} />
+                            )}
+                            <span className="ml-1">{isSyncing ? "Syncing..." : "Sync"}</span>
+                          </Button>
+                        )}
+                        <Button
+                          variant={gmailStatus?.connected ? 'outline' : 'secondary'}
+                          size="sm"
+                          onClick={gmailStatus?.connected ? handleDisconnectGmail : handleConnectGmail}
+                        >
+                          {gmailStatus?.connected ? 'Disconnect' : 'Connect'}
                         </Button>
                       </div>
-                    ))}
+                    </div>
+
+                    {/* WhatsApp Connection */}
+                    <div className="p-4 rounded-xl bg-black/[0.02] border border-black/5">
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                          <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-bold text-xs border border-black/5 shrink-0">
+                            <svg viewBox="0 0 24 24" className="w-5 h-5 fill-[#25D366]">
+                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm">WhatsApp</p>
+                            {whatsappStatus?.linked ? (
+                              <p className="text-xs text-foreground/50">{whatsappStatus.phoneNumber}</p>
+                            ) : (
+                              <p className="text-xs text-foreground/50">Not linked</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 sm:mt-1 self-end sm:self-start">
+                          {whatsappStatus?.linked ? (
+                            <Button variant="outline" size="sm" onClick={handleDisconnectWhatsapp}>
+                              Disconnect
+                            </Button>
+                          ) : (
+                            <Button variant="secondary" size="sm" onClick={handleRequestLinkingCode}>
+                              {linkingCode ? 'Refresh Code' : 'Get Link Code'}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Linking code display */}
+                      {!whatsappStatus?.linked && linkingCode && (
+                        <div className="mt-4 p-3 rounded-lg bg-white border border-black/5">
+                          <p className="text-xs text-foreground/50 mb-2">
+                            Send this code to our WhatsApp business number to link your account:
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <code className="text-lg font-mono font-black tracking-[0.3em] text-primary bg-primary/5 px-4 py-2 rounded-lg">
+                              {linkingCode}
+                            </code>
+                            <Button variant="ghost" size="sm" onClick={handleCopyCode}>
+                              {codeCopied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                            </Button>
+                          </div>
+                          {whatsappStatus && !whatsappStatus.linked && whatsappStatus.linkingCodeExpiresAt && (
+                            <p className="text-xs text-foreground/30 mt-2">
+                              Expires: {new Date(whatsappStatus.linkingCodeExpiresAt).toLocaleTimeString()}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Preferences */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Pre-alert Preferences</CardTitle>
+                    <CardDescription>Control how pre-alerts are created from your messages.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between p-4 rounded-xl bg-black/[0.02] border border-black/5">
+                      <div>
+                        <p className="font-bold text-sm">Auto-create pre-alerts</p>
+                        <p className="text-xs text-foreground/50">
+                          Automatically create pre-alerts from incoming messages instead of drafts.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={preferences?.autoCreatePreAlerts ?? false}
+                        onClick={() => updatePreferences({ autoCreatePreAlerts: !(preferences?.autoCreatePreAlerts ?? false) }).catch(() => toast.error("Failed to update preference"))}
+                        className={cn(
+                          "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
+                          preferences?.autoCreatePreAlerts ? "bg-primary" : "bg-black/10"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform",
+                            preferences?.autoCreatePreAlerts ? "translate-x-5" : "translate-x-0"
+                          )}
+                        />
+                      </button>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>

@@ -203,11 +203,17 @@ function ExplorePage() {
                     className="group w-[160px] flex-none cursor-pointer md:w-[220px]"
                   >
                     <div className="relative mb-3 aspect-square overflow-hidden rounded-2xl bg-black/5">
-                      <img
-                        src={item.image}
-                        alt={item.title}
-                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                      />
+                      {item.image?.trim() ? (
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-black/5 text-xs font-semibold text-foreground/40">
+                          No image
+                        </div>
+                      )}
                       <div className="absolute top-2 right-2 flex items-center gap-0.5 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-bold shadow-sm backdrop-blur-sm">
                         <Star
                           size={10}

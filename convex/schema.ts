@@ -121,4 +121,119 @@ export default defineSchema({
   })
     .index("by_session", ["sessionId"])
     .index("by_user", ["userId"]),
+
+  // ── Pre-alert system tables ──────────────────────────────────────────
+
+  evidence: defineTable({
+    userId: v.string(),
+    source: v.union(
+      v.literal("gmail"),
+      v.literal("whatsapp"),
+      v.literal("manual"),
+    ),
+    sourceMessageId: v.optional(v.string()),
+    merchant: v.optional(v.string()),
+    rawTextSnippet: v.string(),
+    rawStorageId: v.optional(v.id("_storage")),
+    receivedAt: v.number(),
+    processedAt: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("extracted"),
+      v.literal("failed"),
+      v.literal("duplicate"),
+    ),
+    extractionError: v.optional(v.string()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_source", ["userId", "source"])
+    .index("by_source_message", ["sourceMessageId"]),
+
+  purchaseDrafts: defineTable({
+    userId: v.string(),
+    evidenceId: v.id("evidence"),
+    merchant: v.string(),
+    storeName: v.optional(v.string()),
+    orderNumber: v.optional(v.string()),
+    itemsSummary: v.optional(v.string()),
+    valueUsd: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    originalValue: v.optional(v.number()),
+    confidence: v.number(),
+    missingFields: v.array(v.string()),
+    invoiceStorageId: v.optional(v.id("_storage")),
+    invoicePresent: v.boolean(),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("confirmed"),
+      v.literal("rejected"),
+    ),
+    confirmedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_status", ["userId", "status"])
+    .index("by_evidence", ["evidenceId"]),
+
+  packagePreAlerts: defineTable({
+    userId: v.string(),
+    purchaseDraftId: v.id("purchaseDrafts"),
+    trackingNumber: v.string(),
+    carrier: v.optional(v.string()),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("confirmed"),
+      v.literal("submitted"),
+      v.literal("rejected"),
+    ),
+    confirmedAt: v.optional(v.number()),
+    submittedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_purchase_draft", ["purchaseDraftId"])
+    .index("by_user_tracking", ["userId", "trackingNumber"]),
+
+  integrationsGmail: defineTable({
+    userId: v.string(),
+    email: v.string(),
+    encryptedRefreshToken: v.string(),
+    accessToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
+    historyId: v.optional(v.string()),
+    watchExpiration: v.optional(v.number()),
+    lastSyncAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("active"),
+      v.literal("needs_reauth"),
+      v.literal("disconnected"),
+    ),
+    connectedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_email", ["email"])
+    .index("by_status", ["status"]),
+
+  integrationsWhatsapp: defineTable({
+    userId: v.string(),
+    phoneNumber: v.string(),
+    linkingCode: v.optional(v.string()),
+    linkingCodeExpiresAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("pending_link"),
+      v.literal("active"),
+      v.literal("disconnected"),
+    ),
+    lastMessageAt: v.optional(v.number()),
+    connectedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_phone", ["phoneNumber"])
+    .index("by_linking_code", ["linkingCode"]),
+
+  userPreferences: defineTable({
+    userId: v.string(),
+    autoCreatePreAlerts: v.boolean(),
+    gmailSyncEnabled: v.boolean(),
+    whatsappSyncEnabled: v.boolean(),
+  })
+    .index("by_user", ["userId"]),
 })
