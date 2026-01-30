@@ -149,8 +149,28 @@ export async function getAuthUserId(
  * Used by the HTTP router to handle auth requests.
  * @param ctx - The Convex context
  */
+// Dynamically determine base URL from ALLOWED_ORIGINS
+// Prefers production URL for OAuth callbacks since Google needs a fixed redirect URI
+// Local development will still work because:
+// 1. Client-side uses window.location.origin for API calls
+// 2. Sessions are stored in Convex (shared between environments)
+// 3. After OAuth, Better Auth redirects based on the request origin stored in state
+const getBaseURL = (): string => {
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()) || [];
+  // Always prefer production URL for OAuth redirect consistency
+  const productionOrigin = allowedOrigins.find((o) => !o.includes("localhost"));
+  if (productionOrigin) {
+    return productionOrigin;
+  }
+  // Fallback for local-only development
+  return process.env.BETTER_AUTH_URL || "http://localhost:3000";
+};
+
 export const createAuth: CreateAuth<DataModel> = (ctx) => {
+  const baseURL = getBaseURL();
+  
   return betterAuth({
+    baseURL, // Dynamic base URL for OAuth callbacks
     database: authComponent.adapter(ctx),
     session: {
       expiresIn: 60 * 60 * 24 * 30, // 30 days
@@ -162,21 +182,8 @@ export const createAuth: CreateAuth<DataModel> = (ctx) => {
     },
     emailAndPassword: {
       enabled: true,
-      // Server-side password validation
-      password: {
-        minLength: 8,
-        maxLength: 128,
-        // Custom validation function
-        validate: (password: string) => {
-          if (password.length < 8) {
-            return { valid: false, message: "Password must be at least 8 characters" };
-          }
-          if (!/\d/.test(password)) {
-            return { valid: false, message: "Password must contain at least one number" };
-          }
-          return { valid: true };
-        },
-      },
+      // Note: Password validation is handled client-side
+      // Better Auth only supports custom hash/verify functions, not validation
     },
     socialProviders: {
       ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
@@ -192,11 +199,8 @@ export const createAuth: CreateAuth<DataModel> = (ctx) => {
           {})),
     },
     // Trusted origins for auth requests
-    // In production, only include your actual domains
     trustedOrigins: [
-      // Development
       "http://localhost:3000",
-      // Production (update with your actual domain)
       "https://t3-chat-replica.vercel.app",
     ],
     plugins: [
