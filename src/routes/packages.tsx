@@ -24,13 +24,8 @@ import {
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { authClient } from "../lib/auth";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { cn } from "../lib/utils";
 import { toast } from "sonner";
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export const Route = createFileRoute("/packages")({
   component: PackagesPage,
@@ -42,18 +37,24 @@ const STATUS_CONFIG = {
     icon: Box,
     color: "text-blue-500",
     bgColor: "bg-blue-500/10",
+    indicatorColor: "bg-blue-500",
+    barColor: "bg-blue-500",
   },
   in_transit: {
     label: "In Transit",
     icon: Truck,
     color: "text-amber-500",
     bgColor: "bg-amber-500/10",
+    indicatorColor: "bg-amber-500",
+    barColor: "bg-amber-500",
   },
   ready_for_pickup: {
     label: "Ready for Pickup",
     icon: MapPin,
     color: "text-green-500",
     bgColor: "bg-green-500/20",
+    indicatorColor: "bg-green-500",
+    barColor: "bg-green-500",
     highlight: true,
   },
   delivered: {
@@ -61,8 +62,24 @@ const STATUS_CONFIG = {
     icon: CheckCircle2,
     color: "text-foreground/40",
     bgColor: "bg-black/[0.03]",
+    indicatorColor: "bg-foreground/20",
+    barColor: "bg-black/10",
   },
-};
+} as const;
+
+type PackageStatus = keyof typeof STATUS_CONFIG;
+
+interface Package {
+  _id: string;
+  merchant: string;
+  trackingNumber: string;
+  description: string;
+  status: PackageStatus;
+  weight?: number;
+  cost?: number;
+  location?: string;
+  date?: string;
+}
 
 function PackagesPage() {
   const isMobile = useIsMobile();
@@ -317,26 +334,28 @@ function PackagesPage() {
                       </select>
                    </div>
 
-                   <div className="flex items-center gap-1 rounded-xl bg-black/[0.03] p-1">
-                      <button 
-                         onClick={() => setViewMode("card")}
-                         className={cn(
-                            "flex h-8 w-8 items-center justify-center rounded-lg transition-all",
-                            viewMode === "card" ? "bg-white text-primary shadow-sm" : "text-foreground/40 hover:text-foreground"
-                         )}
-                      >
-                         <LayoutGrid size={16} />
-                      </button>
-                      <button 
-                         onClick={() => setViewMode("table")}
-                         className={cn(
-                            "flex h-8 w-8 items-center justify-center rounded-lg transition-all",
-                            viewMode === "table" ? "bg-white text-primary shadow-sm" : "text-foreground/40 hover:text-foreground"
-                         )}
-                      >
-                         <ListIcon size={16} />
-                      </button>
-                   </div>
+                    <div className="flex items-center gap-1 rounded-xl bg-black/[0.03] p-1">
+                       <button 
+                          onClick={() => setViewMode("card")}
+                          aria-label="Card view"
+                          className={cn(
+                             "flex h-8 w-8 items-center justify-center rounded-lg transition-all",
+                             viewMode === "card" ? "bg-white text-primary shadow-sm" : "text-foreground/40 hover:text-foreground"
+                          )}
+                       >
+                          <LayoutGrid size={16} />
+                       </button>
+                       <button 
+                          onClick={() => setViewMode("table")}
+                          aria-label="Table view"
+                          className={cn(
+                             "flex h-8 w-8 items-center justify-center rounded-lg transition-all",
+                             viewMode === "table" ? "bg-white text-primary shadow-sm" : "text-foreground/40 hover:text-foreground"
+                          )}
+                       >
+                          <ListIcon size={16} />
+                       </button>
+                    </div>
                 </div>
              </div>
 
@@ -485,14 +504,14 @@ function PackagesPage() {
                                           <td className="px-6 py-5">
                                              <span className="font-mono text-[11px] font-bold text-foreground/40 group-hover:text-foreground/60 transition-colors uppercase tracking-tight">{pkg.trackingNumber}</span>
                                           </td>
-                                          <td className="px-6 py-5 text-right">
-                                             <div className="flex items-center justify-end gap-2">
-                                                <div className={cn("h-1.5 w-1.5 rounded-full animate-pulse", STATUS_CONFIG[pkg.status as keyof typeof STATUS_CONFIG]?.color.replace("text-", "bg-"))} />
-                                                <span className={cn("text-[11px] font-black uppercase tracking-widest", STATUS_CONFIG[pkg.status as keyof typeof STATUS_CONFIG]?.color)}>
-                                                   {STATUS_CONFIG[pkg.status as keyof typeof STATUS_CONFIG]?.label}
-                                                </span>
-                                             </div>
-                                          </td>
+                                           <td className="px-6 py-5 text-right">
+                                              <div className="flex items-center justify-end gap-2">
+                                                 <div className={cn("h-1.5 w-1.5 rounded-full animate-pulse", STATUS_CONFIG[pkg.status as PackageStatus].indicatorColor)} />
+                                                 <span className={cn("text-[11px] font-black uppercase tracking-widest", STATUS_CONFIG[pkg.status as PackageStatus].color)}>
+                                                    {STATUS_CONFIG[pkg.status as PackageStatus].label}
+                                                 </span>
+                                              </div>
+                                           </td>
                                           <td className="px-6 py-5 text-right">
                                              <span className="text-xs font-bold text-foreground/60">{pkg.weight ? `${pkg.weight} lbs` : "--"}</span>
                                           </td>
@@ -609,7 +628,7 @@ function StatCard({ label, value, icon: Icon, variant = "default" }: { label: st
   );
 }
 
-function PackageCard({ pkg }: { pkg: any }) {
+function PackageCard({ pkg }: { pkg: Package }) {
   const config = STATUS_CONFIG[pkg.status as keyof typeof STATUS_CONFIG];
   const StatusIcon = config.icon;
 
@@ -626,7 +645,7 @@ function PackageCard({ pkg }: { pkg: any }) {
     >
       <div className="flex flex-col md:flex-row">
         {/* Status Indicator Bar */}
-        <div className={cn("w-full h-1 md:w-1 md:h-initial shrink-0", config.bgColor.replace("/10", "").replace("/20", ""))} />
+        <div className={cn("flex shrink-0 h-1 md:w-1 md:h-auto", config.barColor)} />
         
         <div className="flex flex-1 flex-col p-4 md:flex-row md:items-center md:gap-6 md:p-5">
            {/* Primary Info */}
@@ -665,9 +684,12 @@ function PackageCard({ pkg }: { pkg: any }) {
                        ${pkg.cost.toLocaleString()} <span className="text-[10px] text-foreground/30">JMD</span>
                     </span>
                  )}
-                 <button className="flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.03] text-foreground/30 transition-colors hover:bg-black/[0.06] hover:text-foreground">
-                    <ChevronRight size={16} />
-                 </button>
+                  <button 
+                    aria-label="View package details"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.03] text-foreground/30 transition-colors hover:bg-black/[0.06] hover:text-foreground"
+                  >
+                     <ChevronRight size={16} />
+                  </button>
               </div>
            </div>
         </div>

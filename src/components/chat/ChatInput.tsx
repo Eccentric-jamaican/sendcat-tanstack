@@ -8,20 +8,15 @@ import {
 import { fetchOpenRouterModels, type AppModel } from "../../lib/openrouter";
 import { ArrowUp, Paperclip, Globe, X, Brain, StopCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 import { useMutation, useQuery, useConvexAuth, useConvex } from "convex/react";
 import { Id } from "../../../convex/_generated/dataModel";
 import { api } from "../../../convex/_generated/api";
 import { v4 as uuidv4 } from "uuid";
 import { useNavigate } from "@tanstack/react-router";
+import { cn } from "../../lib/utils";
 import { ModelPicker } from "./ModelPicker";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { toast } from "sonner";
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
 export interface ChatInputProps {
   existingThreadId?: string;
@@ -71,9 +66,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       // Cycle through effort levels appropriate for the reasoning type
       if (reasoningType === "effort") {
         const levels = [null, "low", "medium", "high"];
-        const currentIndex = levels.indexOf(reasoningEffort);
+        const currentIndex = levels.indexOf(reasoningEffort as any);
         const nextIndex = (currentIndex + 1) % levels.length;
-        setReasoningEffort(levels[nextIndex]);
+        setReasoningEffort(levels[nextIndex] as any);
       } else if (reasoningType === "max_tokens") {
         // For max_tokens models, just toggle on/off with a sensible default
         setReasoningEffort(reasoningEffort ? null : "medium");
@@ -313,17 +308,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                         },
                       })
                     );
-                    window.dispatchEvent(
-                      new CustomEvent("chat-streaming-tool-call", {
-                        detail: {
-                          messageId: currentMessageId,
-                          toolCallId: data.id,
-                          toolName: data.tool,
-                          args: "",
-                          state: "streaming"
-                        },
-                      })
-                    );
+
                   } else if (data.type === "tool-input-start" && currentMessageId) {
                     window.dispatchEvent(
                       new CustomEvent("chat-streaming-tool-call", {
@@ -531,11 +516,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                     >
                       <div className="relative flex items-center gap-1.5">
                         <Brain
-                          size={isMobile ? 14 : 15}
-                          className={cn(
-                            "transition-transform duration-500 group-hover/thinking:scale-110",
-                            reasoningEffort ? "fill-current" : "fill-none",
-                          )}
+                           size={isMobile ? 14 : 15}
+                           className={cn(
+                             "transition-transform duration-500 group-hover/thinking:scale-110",
+                             reasoningEffort ? "fill-current" : "fill-none",
+                           )}
                         />
                         <span className="hidden text-[11px] font-semibold tracking-wide uppercase sm:inline md:text-[12px]">
                           {reasoningEffort ? reasoningEffort : "Off"}

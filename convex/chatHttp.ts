@@ -48,24 +48,6 @@ const TOOLS = [
   },
 ];
 
-function mergeToolCalls(acc: any[], defaults: any[]) {
-  defaults.forEach((delta) => {
-    const index = delta.index;
-    if (!acc[index])
-      acc[index] = {
-        id: "",
-        type: "function",
-        function: { name: "", arguments: "" },
-      };
-
-    if (delta.id) acc[index].id = delta.id;
-    if (delta.function?.name) acc[index].function.name += delta.function.name;
-    if (delta.function?.arguments)
-      acc[index].function.arguments += delta.function.arguments;
-  });
-  return acc;
-}
-
 export async function chatHandler(ctx: any, request: Request) {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -103,7 +85,7 @@ export async function chatHandler(ctx: any, request: Request) {
       };
 
       try {
-        const messageId = await ctx.runMutation(internal.messages.internalInitializeAssistantMessage, {
+        let messageId = await ctx.runMutation(internal.messages.internalInitializeAssistantMessage, {
           threadId,
           modelId,
         });
@@ -111,7 +93,7 @@ export async function chatHandler(ctx: any, request: Request) {
         send({ type: "start", messageId });
 
         let cycle = 0;
-        const MAX_CYCLES = 5;
+        const MAX_CYCLES = 2; // Cap tool-calling iterations to prevent excessive searches
         let shouldContinue = true;
         let fullContent = "";
         let fullReasoning = "";
@@ -125,32 +107,40 @@ export async function chatHandler(ctx: any, request: Request) {
           const openRouterMessages = messages.map((m: any) => {
             const msg: any = { role: m.role };
             msg.content = m.content;
-            if (m.toolCalls) msg.tool_calls = m.toolCalls;
+            if (m.toolCalls && m.toolCalls.length > 0) {
+              msg.tool_calls = m.toolCalls;
+              // [AGENTIC] Sanitize History: If message has tools, strip conversational filler content
+              // This prevents "I don't have info" text from confusing the model in the next turn
+              msg.content = ""; 
+            }
             if (m.role === "tool") msg.tool_call_id = m.toolCallId;
             return msg;
           });
 
-          // [AGENTIC] Inject System Prompt for Fallback
+          // [AGENTIC] Strategy-Based System Prompt Injection
+          if (capabilities.promptStrategy === "standard") {
+             openRouterMessages.unshift({
+                role: "system",
+                content: `When you decide to use a tool, DO NOT output any text content (like "I will search..." or "Let me check..."). Just output the tool call directly.`
+             });
+          } else if (capabilities.promptStrategy === "reasoning") {
+             openRouterMessages.unshift({
+                role: "system",
+                content: `You are a reasoning model. Output your internal thought process within <think> tags. When you decide to use a tool, output the tool call JSON immediately after the thinking block. Do not output conversational filler outside the <think> tags.`
+             });
+          }
+
           if (capabilities.toolFallback === "regex" && webSearch) {
              openRouterMessages.unshift({
                role: "system",
-               content: `You currently lack native tool support. To search the web, you MUST output a search command in this EXACT format:
+               content: `You currently lack native tool support. To search the web, you MUST output a search command in this EXACT format and NOTHING ELSE:
 [[SEARCH: your search query here]]
 
 Example:
 User: What is the price of bitcoin?
 Assistant: [[SEARCH: price of bitcoin]]
 
-When you receive the search results, answer the user's question.`
-             });
-          } else if (modelId.toLowerCase().includes("grok") || modelId.toLowerCase().includes("x-ai")) {
-             // [AGENTIC] Grok / xAI specific prompt to reduce verbosity
-             openRouterMessages.unshift({
-                role: "system",
-                content: `You are a helpful assistant with access to tools.
-When a user asks a question that requires a tool (like search_web), CALL THE TOOL DIRECTLY.
-DO NOT explain what you are going to do. DO NOT output "Assistant: ...". DO NOT output "I need to call...".
-Just output the tool call JSON.`
+When you receive the search results, answer the user's question. DO NOT repeat the [[SEARCH: ...]] command once you have results.`
              });
           }
 
@@ -221,7 +211,7 @@ Just output the tool call JSON.`
                  if (match) {
                     const query = match[1];
                     accumulatedToolCalls.push({
-                      id: `call_${Date.now()}`,
+                      id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
                       type: "function",
                       function: { name: "search_web", arguments: JSON.stringify({ query }) }
                     });
@@ -260,7 +250,8 @@ Just output the tool call JSON.`
                     send({ 
                       type: "tool-input-start", 
                       toolCallId: accumulatedToolCalls[index].id, 
-                      toolName: accumulatedToolCalls[index].function.name 
+                      toolName: accumulatedToolCalls[index].function.name,
+                      state: "streaming"
                     });
                   }
                   
@@ -294,16 +285,15 @@ Just output the tool call JSON.`
             for (const tc of accumulatedToolCalls) {
               const argsObj = JSON.parse(tc.function.arguments);
               
-              // Notify client input is complete and tool is ready to run
+              // [AGENTIC] Notify client input is complete and tool is ready to run
+              // We only emit tool-input-available to transition from streaming to a static "pending" state
               send({ 
                 type: "tool-input-available", 
                 toolCallId: tc.id, 
                 toolName: tc.function.name,
-                input: argsObj
+                input: argsObj,
+                state: "completed"
               });
-
-              // Also start the execution spinner (legacy event, kept for compatibility)
-              send({ type: "tool-call", tool: tc.function.name, id: tc.id });
 
               let result = "Error";
               const name = tc.function.name;
@@ -338,45 +328,97 @@ Just output the tool call JSON.`
                   result = JSON.stringify(searchResults);
                 }
               } else if (name === "search_ebay") {
-                 const items = await searchEbayItems(argsObj.query, argsObj.limit || 8);
-                 result = `Found ${items.length} items on eBay.`;
-                 await ctx.runMutation(internal.messages.internalSaveProducts, {
-                    messageId,
-                    products: items,
-                 });
+                 try {
+                   const items = await searchEbayItems(argsObj.query, argsObj.limit || 8);
+                   result = `Found ${items.length} items on eBay: ${JSON.stringify(items.map((i: any) => ({ title: i.title, price: i.price })))}`;
+                   await ctx.runMutation(internal.messages.internalSaveProducts, {
+                      messageId,
+                      products: items,
+                   });
+                 } catch (err: any) {
+                   result = `eBay Search Error: ${err.message}`;
+                 }
               }
 
+              // Update the persistent database
               await ctx.runMutation(internal.messages.internalSend, {
                 threadId,
                 role: "tool",
                 content: result,
                 toolCallId: tc.id,
                 name,
+                modelId, // Pass modelId so frontend can query it correctly
               });
             }
+
+            // [AGENTIC] Extract <think> tags from content to reasoning (for models that mix them)
+            const thinkMatch = fullContent.match(/<think>([\s\S]*?)<\/think>/);
+            if (thinkMatch) {
+               fullReasoning = (fullReasoning || "") + "\n" + thinkMatch[1].trim();
+            }
+
+            // [LATENCY FIX] Run independent mutations in parallel
+            // Start creating the next message immediately while other mutations run
+            const [, , , newMessageId] = await Promise.all([
+              // Save empty content for tool-use message (discards filler)
+              ctx.runMutation(internal.messages.internalAppendContent, {
+                messageId,
+                content: "", // Force empty content
+              }),
+              // Save reasoning if present
+              fullReasoning
+                ? ctx.runMutation(internal.messages.internalSaveReasoningContent, {
+                    messageId,
+                    reasoningContent: fullReasoning,
+                  })
+                : Promise.resolve(),
+              // Mark current message as completed
+              ctx.runMutation(internal.messages.internalUpdateStatus, {
+                messageId,
+                status: "completed",
+              }),
+              // Create NEXT assistant message for the response/answer (in parallel!)
+              ctx.runMutation(internal.messages.internalInitializeAssistantMessage, {
+                threadId,
+                modelId,
+              }),
+            ]);
+            
+            // Switch context to the new message
+            messageId = newMessageId;
+            fullContent = "";
+            fullReasoning = "";
+            
+            // Notify client to start listening to the new message
+            send({ type: "start", messageId: newMessageId });
+
             shouldContinue = true;
+            accumulatedToolCalls = [];
+          } else {
+            // If no tool calls were made in this turn, we are finished.
+            shouldContinue = false;
           }
         }
 
         // Finalize
         if (!isAborted) {
-          await ctx.runMutation(internal.messages.internalAppendContent, {
-            messageId,
-            content: fullContent,
-          });
-
-          // Save Reasoning (if any)
-           if (fullReasoning) {
-             await ctx.runMutation(internal.messages.internalSaveReasoningContent, {
-               messageId,
-               reasoningContent: fullReasoning,
-             });
-          }
-
-          await ctx.runMutation(internal.messages.internalUpdateStatus, {
-            messageId,
-            status: "completed",
-          });
+          // [LATENCY FIX] Run final save mutations in parallel
+          await Promise.all([
+            ctx.runMutation(internal.messages.internalAppendContent, {
+              messageId,
+              content: fullContent,
+            }),
+            fullReasoning
+              ? ctx.runMutation(internal.messages.internalSaveReasoningContent, {
+                  messageId,
+                  reasoningContent: fullReasoning,
+                })
+              : Promise.resolve(),
+            ctx.runMutation(internal.messages.internalUpdateStatus, {
+              messageId,
+              status: "completed",
+            }),
+          ]);
           send({ type: "done" });
         } else {
           await ctx.runMutation(internal.messages.internalUpdateStatus, {

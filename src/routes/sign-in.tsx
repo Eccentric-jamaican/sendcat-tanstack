@@ -1,12 +1,12 @@
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { authClient } from '../lib/auth'
-import { Mail, Lock, ArrowRight, Loader2, AlertCircle } from 'lucide-react'
+import { cn, resolveRedirect } from '../lib/utils'
 import { toast } from 'sonner'
-
-import { z } from 'zod';
-import { useSearch } from '@tanstack/react-router';
+import { Mail, Lock, ArrowRight, Loader2, AlertCircle } from 'lucide-react'
+import { Button } from '../components/ui/button'
+import { z } from 'zod'
 
 const signInSearchSchema = z.object({
   redirect: z.string().optional(),
@@ -43,19 +43,11 @@ function SignIn() {
 
       toast.success('Successfully signed in!')
       
-      // Redirect to the intended page or home
-      if (redirect) {
-        // If it's a full URL, we might need to be careful, 
-        // but TanStack Router location.href is usually a full URL string.
-        // However, navigate() prefers paths.
-        try {
-          const url = new URL(redirect);
-          navigate({ to: url.pathname + url.search });
-        } catch (e) {
-          navigate({ to: redirect as any });
-        }
+      const resolvedRedirect = resolveRedirect(redirect);
+      if (resolvedRedirect) {
+        navigate({ to: resolvedRedirect.pathname + resolvedRedirect.search });
       } else {
-        navigate({ to: '/' })
+        navigate({ to: '/' });
       }
     } catch (err) {
       if (import.meta.env.DEV) {

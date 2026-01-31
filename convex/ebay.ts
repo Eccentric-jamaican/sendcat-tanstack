@@ -38,6 +38,7 @@ async function getApplicationToken() {
 
   if (!response.ok) {
     const errorBody = await response.text();
+    console.error(`[eBay OAuth Error] Status: ${response.status}`, errorBody);
     throw new Error(`Failed to get eBay token: ${response.status} ${errorBody}`);
   }
 
@@ -59,6 +60,8 @@ export async function searchEbayItems(query: string, limit: number = 6) {
   url.searchParams.set("limit", limit.toString());
   // Optional: filter for Fixed Price (Buy It Now) items for better UI experience
   url.searchParams.set("filter", "buyingOptions:{FIXED_PRICE}");
+
+  console.log(`[eBay Search] Query: "${query}", URL: ${url.toString()}`);
 
   const response = await fetch(url.toString(), {
     method: "GET",

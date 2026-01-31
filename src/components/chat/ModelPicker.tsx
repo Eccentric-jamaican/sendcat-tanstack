@@ -6,7 +6,7 @@ import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { ProviderIcon } from './ProviderIcons'
+import { ProviderIcon, PROVIDER_CONFIG } from './ProviderIcons'
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -249,23 +249,6 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
   // Compute dynamic providers with grouping
   const uniqueProviders = Array.from(new Set(models.map(m => m.provider))).sort()
   
-  const PROVIDER_CONFIG: Record<string, { name: string, group: string, order: number }> = {
-    'openai': { name: 'OpenAI', group: 'us-closed', order: 1 },
-    'anthropic': { name: 'Anthropic', group: 'us-closed', order: 2 },
-    'google': { name: 'Google', group: 'us-closed', order: 3 },
-    'perplexity': { name: 'Perplexity', group: 'us-closed', order: 4 },
-    'cohere': { name: 'Cohere', group: 'us-closed', order: 5 },
-    'xai': { name: 'xAI', group: 'us-closed', order: 6 },
-    'meta': { name: 'Meta', group: 'us-open', order: 1 },
-    'deepseek': { name: 'DeepSeek', group: 'chinese', order: 1 },
-    'qwen': { name: 'Qwen', group: 'chinese', order: 2 },
-    'moonshot': { name: 'Moonshot', group: 'chinese', order: 3 },
-    'zhipu': { name: 'Zhipu', group: 'chinese', order: 4 },
-    'mistral': { name: 'Mistral', group: 'eu', order: 1 },
-    'alibaba': { name: 'Alibaba', group: 'chinese', order: 5 },
-    'minimax': { name: 'MiniMax', group: 'chinese', order: 6 },
-  }
-
   const getProviderInfo = (id: string) => {
     return PROVIDER_CONFIG[id] || { 
       name: id.charAt(0).toUpperCase() + id.slice(1), 

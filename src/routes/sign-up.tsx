@@ -1,12 +1,12 @@
-import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { authClient } from '../lib/auth'
-import { User, Mail, Lock, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
-import { toast } from 'sonner'
-
+import { createFileRoute, Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { useState } from 'react';
+import { authClient } from '../lib/auth';
+import { cn, resolveRedirect } from '../lib/utils';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Mail, Lock, User, ArrowRight, Loader2, AlertCircle, Check } from 'lucide-react';
+import { Button } from '../components/ui/button';
+import { toast } from 'sonner';
 import { z } from 'zod';
-import { useSearch } from '@tanstack/react-router';
 
 const signUpSearchSchema = z.object({
   redirect: z.string().optional(),
@@ -44,15 +44,10 @@ function SignUp() {
       }
 
       toast.success('Account created successfully!');
-
-      // Redirect to intended page or home
-      if (redirect) {
-        try {
-          const url = new URL(redirect);
-          navigate({ to: url.pathname + url.search });
-        } catch (e) {
-          navigate({ to: redirect as any });
-        }
+      
+      const resolvedRedirect = resolveRedirect(redirect);
+      if (resolvedRedirect) {
+        navigate({ to: resolvedRedirect.pathname + resolvedRedirect.search });
       } else {
         navigate({ to: '/' });
       }
@@ -164,7 +159,7 @@ function SignUp() {
                 {passwordRequirements.map((req, i) => (
                   <div key={i} className="flex items-center gap-2 text-[10px]">
                     <span className={req.met ? "text-green-500" : "text-muted-foreground"}>
-                      {req.met ? <CheckCircle2 className="h-3 w-3" /> : <div className="h-1 w-1 rounded-full bg-current ml-1" />}
+                      {req.met ? <Check className="h-3 w-3" /> : <div className="h-1 w-1 rounded-full bg-current ml-1" />}
                     </span>
                     <span className={req.met ? "text-green-500/80" : "text-muted-foreground/60"}>
                       {req.text}
