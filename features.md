@@ -22,8 +22,25 @@ Likely files to touch
 - `src/routes/pre-alerts.tsx` (display auto-created drafts and status)
 - `convex/schema.ts` (if new fields are needed for watch state)
 
-
 ## Add badge to pre alerts sidebar element
 
 Goal: When a sync is performed (currently only gmail) the user gets a subtle indicator letting them know there is a draft for them to confirm.
 in the future if the user has not responded then they get either whatsapp message reminding them to confirm or email. It would be nice for the user to confirm right then and there in the whatsapp thread or email once they see it.
+
+## Firecrawl integration
+
+Goal: add Firecrawl as a first-class web extraction option for link previews, summaries, and search result enrichment.
+
+Key behaviors
+
+- Support a Firecrawl-backed fetch for external URLs with structured data and readable text.
+- Allow choosing Firecrawl for search results or fallback when standard fetching fails.
+- Store extraction metadata (source url, status, timing) for debugging and UX transparency.
+
+Likely files to touch
+
+- `src/components/chat/Markdown.tsx` (trigger extraction for external link previews)
+- `src/components/chat/SearchToolResult.tsx` (enrich search results with Firecrawl data)
+- `convex/chatHttp.ts` or `convex/http.ts` (server-side fetch / tool integration)
+- `convex/schema.ts` (optional storage for extraction metadata)
+- `src/routes/settings.tsx` (toggle or API key management if user-configurable)

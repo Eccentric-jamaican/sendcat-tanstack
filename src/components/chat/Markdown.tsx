@@ -504,13 +504,13 @@ export const Markdown = ({
             <p className="mt-3 truncate rounded-lg bg-fuchsia-50 px-3 py-2 font-mono text-xs text-fuchsia-900/70">
               {pendingUrl}
             </p>
-            <label className="mt-4 flex items-center gap-2 text-sm text-fuchsia-900/70">
-              <Checkbox
-                checked={rememberExternalChoice}
-                onCheckedChange={setRememberExternalChoice}
-              />
-              <span>Don't show this warning again</span>
-            </label>
+            <Checkbox
+              checked={rememberExternalChoice}
+              onCheckedChange={setRememberExternalChoice}
+              labelClassName="mt-4 text-sm text-fuchsia-900/70"
+            >
+              Don't show this warning again
+            </Checkbox>
             <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
