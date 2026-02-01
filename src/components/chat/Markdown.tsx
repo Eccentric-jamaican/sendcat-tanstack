@@ -16,8 +16,8 @@ import {
   DialogContent,
   DialogTitle,
   DialogDescription,
-  DialogClose,
 } from "../ui/dialog";
+import { Checkbox } from "../ui/checkbox";
 
 interface MarkdownProps {
   content: string;
@@ -99,6 +99,8 @@ const languageExtensions: Record<string, string> = {
   text: "txt",
   txt: "txt",
 };
+
+const externalWarningStorageKey = "markdown.externalLinkWarningDismissed";
 
 const downloadTextFile = (
   filename: string,
@@ -233,6 +235,12 @@ export const Markdown = ({
 }: MarkdownProps) => {
   const [wrapEnabled, setWrapEnabled] = useState(false);
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
+  const [isExternalDialogOpen, setIsExternalDialogOpen] = useState(false);
+  const [suppressExternalWarning, setSuppressExternalWarning] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(externalWarningStorageKey) === "true";
+  });
+  const [rememberExternalChoice, setRememberExternalChoice] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem("markdown.codeWrap");
@@ -244,6 +252,61 @@ export const Markdown = ({
   useEffect(() => {
     localStorage.setItem("markdown.codeWrap", String(wrapEnabled));
   }, [wrapEnabled]);
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      closeExternalDialog();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        closeExternalDialog();
+      }
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
+
+  const openExternalLink = (url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleExternalLinkRequest = (url: string) => {
+    if (suppressExternalWarning) {
+      openExternalLink(url);
+      return;
+    }
+    setPendingUrl(url);
+    setIsExternalDialogOpen(true);
+  };
+
+  const closeExternalDialog = () => {
+    setIsExternalDialogOpen(false);
+    setPendingUrl(null);
+    setRememberExternalChoice(false);
+  };
+
+  const handleExternalDialogChange = (open: boolean) => {
+    if (open) {
+      setIsExternalDialogOpen(true);
+      return;
+    }
+    closeExternalDialog();
+  };
+
+  const handleExternalContinue = () => {
+    if (!pendingUrl) return;
+    const url = pendingUrl;
+    if (rememberExternalChoice) {
+      localStorage.setItem(externalWarningStorageKey, "true");
+      setSuppressExternalWarning(true);
+    }
+    closeExternalDialog();
+    openExternalLink(url);
+  };
 
   // Append sentinel if streaming
   const contentWithSentinel = isStreaming ? content + "▊" : content;
@@ -414,7 +477,7 @@ export const Markdown = ({
                 className="prose-link"
                 onClick={(e) => {
                   e.preventDefault();
-                  if (href) setPendingUrl(href);
+                  if (href) handleExternalLinkRequest(href);
                 }}
                 {...props}
               >
@@ -427,45 +490,46 @@ export const Markdown = ({
         </ReactMarkdown>
       </div>
 
-      <Dialog
-        open={pendingUrl !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingUrl(null);
-        }}
-      >
-        <DialogContent>
-          <DialogTitle>Leaving the app</DialogTitle>
-          <DialogDescription>
-            You're about to navigate to an external site. Make sure you trust
-            this link before continuing.
-          </DialogDescription>
-          <p className="mt-3 truncate rounded-lg bg-fuchsia-50 px-3 py-2 font-mono text-xs text-fuchsia-900/70">
-            {pendingUrl}
-          </p>
-          <div className="mt-5 flex justify-end gap-3">
-            <DialogClose asChild>
+      {pendingUrl && (
+        <Dialog
+          open={isExternalDialogOpen}
+          onOpenChange={handleExternalDialogChange}
+        >
+          <DialogContent>
+            <DialogTitle>Leaving the app</DialogTitle>
+            <DialogDescription>
+              You're about to navigate to an external site. Make sure you trust
+              this link before continuing.
+            </DialogDescription>
+            <p className="mt-3 truncate rounded-lg bg-fuchsia-50 px-3 py-2 font-mono text-xs text-fuchsia-900/70">
+              {pendingUrl}
+            </p>
+            <label className="mt-4 flex items-center gap-2 text-sm text-fuchsia-900/70">
+              <Checkbox
+                checked={rememberExternalChoice}
+                onCheckedChange={setRememberExternalChoice}
+              />
+              <span>Don't show this warning again</span>
+            </label>
+            <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
                 className="rounded-lg border border-fuchsia-100/80 px-4 py-2 text-sm font-medium text-fuchsia-900/70 transition-colors hover:bg-fuchsia-50"
+                onClick={closeExternalDialog}
               >
                 Cancel
               </button>
-            </DialogClose>
-            <button
-              type="button"
-              className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-fuchsia-700"
-              onClick={() => {
-                if (pendingUrl) {
-                  window.open(pendingUrl, "_blank", "noopener,noreferrer");
-                }
-                setPendingUrl(null);
-              }}
-            >
-              Continue
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+              <button
+                type="button"
+                className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-fuchsia-700"
+                onClick={handleExternalContinue}
+              >
+                Continue
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </TooltipProvider>
   );
 };
