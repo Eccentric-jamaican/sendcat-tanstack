@@ -5,6 +5,7 @@ import { useSmoothStreaming } from "../../hooks/useSmoothStreaming";
 import { ReasoningBlock } from "./ReasoningBlock";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { SearchToolResult } from "./SearchToolResult";
+import { EbayToolResult } from "./EbayToolResult";
 import { type Product } from "../../data/mockProducts";
 import { ProductGrid } from "../product/ProductGrid";
 
@@ -290,6 +291,9 @@ const ToolCallRenderer = ({
 
   if (name === "search_web") {
     return <SearchToolResult isLoading={!result} result={result} args={args} />;
+  }
+  if (name === "search_ebay") {
+    return <EbayToolResult isLoading={!result} result={result} args={args} />;
   }
   return (
     <ToolCallBlock
