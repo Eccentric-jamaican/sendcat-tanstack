@@ -39,6 +39,9 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
   const merchantFavicon = product?.merchantDomain
     ? `https://www.google.com/s2/favicons?domain=${product.merchantDomain}&sz=32`
     : null;
+  const supplierLogo = product?.supplier?.logo;
+  const supplierLogoIsUrl =
+    typeof supplierLogo === "string" && /^(https?:)?\/\//i.test(supplierLogo);
   const priceLabel = product?.priceRange || product?.price || "-";
   const imageFallback = product ? getProductImageFallback(product) : "";
   const imageSrc = product
@@ -280,9 +283,18 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
                       alt=""
                       className="h-10 w-10 rounded-lg"
                     />
+                  ) : supplierLogoIsUrl ? (
+                    <img
+                      src={supplierLogo}
+                      alt=""
+                      className="h-10 w-10 rounded-lg object-cover"
+                    />
                   ) : (
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 font-bold text-zinc-600">
-                      {product.supplier?.logo ||
+                      {(typeof supplierLogo === "string" &&
+                      !supplierLogoIsUrl
+                        ? supplierLogo
+                        : "") ||
                         merchantLabel?.charAt(0).toUpperCase() ||
                         "E"}
                     </div>

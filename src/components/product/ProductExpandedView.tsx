@@ -63,7 +63,7 @@ export function ProductExpandedView({
 
   useEffect(() => {
     setPage(1);
-  }, [view, sourceFilter, products.length]);
+  }, [view, sourceFilter, filteredProducts.length]);
 
   useEffect(() => {
     if (validSourceFilter !== sourceFilter) {

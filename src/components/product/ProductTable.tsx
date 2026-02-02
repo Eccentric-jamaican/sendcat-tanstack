@@ -39,10 +39,14 @@ export function ProductTable({ products, selectedIds, onToggleSelection, onProdu
               product.merchantDomain ||
               product.supplier?.name ||
               product.sellerName ||
-              "";
+              "Unknown merchant";
             const merchantFavicon = product.merchantDomain
               ? `https://www.google.com/s2/favicons?domain=${product.merchantDomain}&sz=32`
               : null;
+            const supplierLogo = product.supplier?.logo;
+            const supplierLogoIsUrl =
+              typeof supplierLogo === "string" &&
+              /^(https?:)?\/\//i.test(supplierLogo);
             const priceLabel = product.priceRange || product.price || "-";
             const imageFallback = getProductImageFallback(product);
             const imageSrc = getProductImageUrl(product) || imageFallback;
@@ -115,9 +119,18 @@ export function ProductTable({ products, selectedIds, onToggleSelection, onProdu
                       alt=""
                       className="h-5 w-5 rounded"
                     />
+                  ) : supplierLogoIsUrl ? (
+                    <img
+                      src={supplierLogo}
+                      alt=""
+                      className="h-5 w-5 rounded object-cover"
+                    />
                   ) : (
                     <div className="h-5 w-5 flex items-center justify-center rounded bg-gray-100 text-[10px] font-bold">
-                      {product.supplier?.logo ||
+                      {(typeof supplierLogo === "string" &&
+                      !supplierLogoIsUrl
+                        ? supplierLogo
+                        : "") ||
                         (merchantLabel?.charAt(0).toUpperCase() || "E")}
                     </div>
                   )}
