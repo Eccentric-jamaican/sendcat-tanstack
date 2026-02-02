@@ -191,6 +191,35 @@ export async function chatHandler(ctx: any, request: Request) {
                 return msg;
               }
 
+              if (m.attachments && m.attachments.length > 0) {
+                const content = [] as any[];
+                const text = m.content ?? "";
+                if (text.trim().length > 0) {
+                  content.push({ type: "text", text });
+                }
+                m.attachments.forEach((att: any) => {
+                  if (!att.url) return;
+                  if (att.type?.startsWith("image/")) {
+                    content.push({
+                      type: "image_url",
+                      image_url: { url: att.url },
+                    });
+                    return;
+                  }
+                  if (att.type === "application/pdf") {
+                    content.push({
+                      type: "file",
+                      file: {
+                        filename: att.name || "document.pdf",
+                        file_data: att.url,
+                      },
+                    });
+                  }
+                });
+                msg.content = content.length > 0 ? content : m.content;
+                return msg;
+              }
+
               msg.content = m.content;
               return msg;
             });

@@ -195,11 +195,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
     const handleSend = async (forcedContent?: string) => {
       const textToSend = forcedContent !== undefined ? forcedContent : content;
-      if (!textToSend.trim() || isGenerating) return;
+      const trimmedText = textToSend.trim();
+      const hasText = trimmedText.length > 0;
+      const hasAttachments = attachments.length > 0;
+      if ((!hasText && !hasAttachments) || isGenerating) return;
       setIsGenerating(true);
 
       // Store content before clearing input
-      const messageContent = textToSend.trim();
+      const messageContent = hasText ? trimmedText : "";
       if (forcedContent === undefined) {
         setContent("");
       }
@@ -646,13 +649,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                       }
                     }}
                     disabled={
-                      !content.trim() && !isGenerating && !isThreadStreaming
+                      !content.trim() &&
+                      attachments.length === 0 &&
+                      !isGenerating &&
+                      !isThreadStreaming
                     }
                     className={cn(
                       // Critical: Maintain min 44x44px touch target for mobile
                       "z-20 flex touch-manipulation items-center justify-center rounded-xl transition-all duration-300",
                       "min-h-[44px] min-w-[44px] p-2 md:p-2.5",
-                      content.trim() || isGenerating || isThreadStreaming
+                      content.trim() ||
+                        attachments.length > 0 ||
+                        isGenerating ||
+                        isThreadStreaming
                         ? isGenerating || isThreadStreaming
                           ? "bg-red-500 text-white shadow-lg shadow-red-500/20"
                           : "bg-t3-berry text-white shadow-lg shadow-t3-berry/20"
