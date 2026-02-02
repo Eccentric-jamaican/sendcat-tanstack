@@ -44,3 +44,22 @@ Likely files to touch
 - `convex/chatHttp.ts` or `convex/http.ts` (server-side fetch / tool integration)
 - `convex/schema.ts` (optional storage for extraction metadata)
 - `src/routes/settings.tsx` (toggle or API key management if user-configurable)
+
+## Multimodal UX improvements (OpenRouter)
+
+Goal: improve multimodal chat experience by guiding model selection and supporting additional media types.
+
+Key behaviors
+
+- When attachments include images, surface a UI hint recommending a vision-capable model.
+- Optionally filter the model picker to vision-capable models while image attachments are present.
+- Add support for audio/video attachments per OpenRouter multimodal spec (including input formats and validation).
+
+Likely files to touch
+
+- `src/components/chat/ChatInput.tsx` (attachment-driven UI hints + model filtering)
+- `src/components/chat/MessageEditInput.tsx` (same behaviors for edit flow)
+- `src/components/chat/ModelPicker.tsx` (filtering UI logic)
+- `convex/chat.ts` (build multimodal payload for audio/video)
+- `convex/chatHttp.ts` (HTTP stream payload for audio/video)
+- `convex/schema.ts` (attachment metadata updates if needed)
