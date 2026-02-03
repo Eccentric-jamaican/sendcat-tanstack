@@ -1,10 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
 import { type Product } from "../../data/mockProducts";
 import { motion } from "framer-motion";
+import { Heart } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import { cn } from "../../lib/utils";
 import {
   getProductImageFallback,
   getProductImageUrl,
 } from "./productImage";
+import { FavoriteListSelector } from "./FavoriteListSelector";
 
 interface ProductCardProps {
   product: Product;
@@ -35,6 +40,14 @@ export function ProductCard({ product }: ProductCardProps) {
   const imageFallback = getProductImageFallback(product);
   const imageSrc = getProductImageUrl(product) || imageFallback;
 
+  const favoritesSelection = useQuery(api.favorites.getUserFavoritesIds);
+  const isFavorited = favoritesSelection?.some(
+    (f: any) => f.externalId === product.id && f.type === "product",
+  );
+
+  // We no longer need handleToggleFavorite here as it's handled by FavoriteListSelector
+  // but we keep the logic for calculating isFavorited
+
   const handleClick = () => {
     // Add productId to search params to open the drawer
     navigate({ to: ".", search: { productId: product.id } });
@@ -59,6 +72,23 @@ export function ProductCard({ product }: ProductCardProps) {
               if (target.src === imageFallback) return;
               target.src = imageFallback;
             }}
+          />
+          <FavoriteListSelector
+            product={product}
+            trigger={
+              <button
+                className={cn(
+                  "absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm transition-all hover:bg-white hover:scale-110 shadow-sm",
+                  isFavorited ? "text-primary" : "text-gray-400"
+                )}
+              >
+                <Heart
+                  size={16}
+                  fill={isFavorited ? "currentColor" : "none"}
+                  className="transition-colors"
+                />
+              </button>
+            }
           />
         </div>
 

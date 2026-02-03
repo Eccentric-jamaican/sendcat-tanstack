@@ -4,6 +4,11 @@ import {
   getProductImageFallback,
   getProductImageUrl,
 } from "./productImage";
+import { Heart } from "lucide-react";
+import { FavoriteListSelector } from "./FavoriteListSelector";
+import { useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import { cn } from "../../lib/utils";
 
 interface ProductTableProps {
   products: Product[];
@@ -13,6 +18,9 @@ interface ProductTableProps {
 }
 
 export function ProductTable({ products, selectedIds, onToggleSelection, onProductClick }: ProductTableProps) {
+  const favoritesSelection = useQuery(api.favorites.getUserFavoritesIds);
+  // We no longer need handleToggleFavorite here as it's handled by FavoriteListSelector
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-left text-sm">
@@ -21,6 +29,9 @@ export function ProductTable({ products, selectedIds, onToggleSelection, onProdu
             <th className="w-12 p-4">
               {/* Header checkbox would go here for select all */}
             </th>
+            <th className="p-4 font-semibold text-gray-900 w-10">
+              {/* Favorite Column */}
+            </th>
             <th className="p-4 font-semibold text-gray-900">Product</th>
             <th className="p-4 font-semibold text-gray-900">Seller</th>
             <th className="p-4 font-semibold text-gray-900">Price</th>
@@ -28,6 +39,10 @@ export function ProductTable({ products, selectedIds, onToggleSelection, onProdu
         </thead>
         <tbody className="divide-y divide-gray-100 bg-white">
           {products.map((product) => {
+            const isFavorited = favoritesSelection?.some(
+              (f: any) => f.externalId === product.id && f.type === "product",
+            );
+            
             const sourceLabel =
               product.source === "global"
                 ? "Global sites"
@@ -61,6 +76,25 @@ export function ProductTable({ products, selectedIds, onToggleSelection, onProdu
                   checked={selectedIds.includes(product.id)}
                   onCheckedChange={() => onToggleSelection(product.id)}
                   className="rounded-md h-5 w-5 border-gray-300 data-[state=checked]:bg-[#a23b67] data-[state=checked]:border-[#a23b67]"
+                />
+              </td>
+              <td className="p-4">
+                <FavoriteListSelector
+                  product={product}
+                  trigger={
+                    <button
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-full transition-all hover:bg-black/5 hover:scale-110",
+                        isFavorited ? "text-primary" : "text-gray-300"
+                      )}
+                    >
+                      <Heart
+                        size={16}
+                        fill={isFavorited ? "currentColor" : "none"}
+                        className="transition-colors"
+                      />
+                    </button>
+                  }
                 />
               </td>
               <td className="p-4">

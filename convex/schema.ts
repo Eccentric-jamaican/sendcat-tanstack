@@ -273,4 +273,23 @@ export default defineSchema({
   })
     .index("by_marketplace", ["marketplaceId"])
     .index("by_category_id", ["categoryId"]),
+
+  favoriteLists: defineTable({
+    userId: v.string(),
+    name: v.string(),
+    createdAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  favorites: defineTable({
+    userId: v.string(),
+    listId: v.optional(v.id("favoriteLists")),
+    type: v.union(v.literal("product"), v.literal("brand")),
+    externalId: v.string(), // The original product.id or brand identifier
+    item: v.any(), // Store the full product/brand object for offline access
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_list", ["listId"])
+    .index("by_user_item", ["userId", "externalId"])
+    .index("by_user_item_type", ["userId", "externalId", "type"]),
 });

@@ -8,14 +8,17 @@ import {
   ExternalLink,
   Loader2,
   Info,
+  Heart,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useAction } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import { cn } from "../../lib/utils";
 import {
   getProductImageFallback,
   getProductImageUrl,
 } from "./productImage";
+import { FavoriteListSelector } from "./FavoriteListSelector";
 
 interface ProductDrawerProps {
   productId: string;
@@ -125,6 +128,11 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
     fetchDetails();
   }, [productId, initialData, getItemDetails]);
 
+  const favoritesSelection = useQuery(api.favorites.getUserFavoritesIds);
+  const isFavorited = favoritesSelection?.some(
+    (f: any) => f.externalId === productId && f.type === "product",
+  );
+
   const handleClose = () => {
     // Check if we can go back in history (if the drawer was opened via push)
     if (window.history.length > 2) {
@@ -202,7 +210,7 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
               <div className="space-y-4">
                 <motion.div
                   layoutId={`image-${product.id}`}
-                  className="aspect-square w-full overflow-hidden rounded-2xl border border-gray-100 bg-gray-50"
+                  className="relative aspect-square w-full overflow-hidden rounded-2xl border border-gray-100 bg-gray-50"
                 >
                   <img
                     src={imageSrc}
@@ -217,6 +225,23 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
                       if (target.src === imageFallback) return;
                       target.src = imageFallback;
                     }}
+                  />
+                  <FavoriteListSelector
+                    product={product}
+                    trigger={
+                      <button
+                        className={cn(
+                          "absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm transition-all hover:bg-white hover:scale-110 shadow-md",
+                          isFavorited ? "text-primary" : "text-gray-400",
+                        )}
+                      >
+                        <Heart
+                          size={20}
+                          fill={isFavorited ? "currentColor" : "none"}
+                          className="transition-colors"
+                        />
+                      </button>
+                    }
                   />
                 </motion.div>
                 {primaryUrl && (
