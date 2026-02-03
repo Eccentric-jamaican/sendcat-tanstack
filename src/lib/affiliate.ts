@@ -31,7 +31,8 @@ export function isEbayUrl(targetUrl?: string) {
   if (!targetUrl) return false;
   try {
     const host = new URL(targetUrl).hostname;
-    return host.includes("ebay.");
+    const labels = host.toLowerCase().split(".");
+    return labels.includes("ebay");
   } catch {
     return false;
   }
