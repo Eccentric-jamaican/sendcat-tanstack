@@ -42,33 +42,37 @@ export function ErrorPage({ error }: { error: unknown }) {
           </p>
         </div>
 
-        {/* Technical Details (Collapsible) */}
-        <div className="w-full bg-black/5 rounded-2xl overflow-hidden border border-black/5">
-          <button 
-            onClick={() => setShowDetails(!showDetails)}
-            aria-expanded={showDetails}
-            aria-controls="error-technical-details"
-            aria-label="Toggle technical details"
-            className="w-full px-4 py-3 flex items-center justify-between text-sm font-bold text-foreground/40 hover:bg-black/5 transition-colors"
-          >
-            <span>TECHNICAL DETAILS</span>
-            {showDetails ? (
-              <ChevronUp size={16} aria-hidden="true" />
-            ) : (
-              <ChevronDown size={16} aria-hidden="true" />
+        {/* Technical Details (Dev Only) */}
+        {isDev && (
+          <div className="w-full bg-black/5 rounded-2xl overflow-hidden border border-black/5">
+            <button
+              onClick={() => setShowDetails(!showDetails)}
+              aria-expanded={showDetails}
+              aria-controls="error-technical-details"
+              aria-label="Toggle technical details"
+              className="w-full px-4 py-3 flex items-center justify-between text-sm font-bold text-foreground/40 hover:bg-black/5 transition-colors"
+            >
+              <span>TECHNICAL DETAILS</span>
+              {showDetails ? (
+                <ChevronUp size={16} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={16} aria-hidden="true" />
+              )}
+            </button>
+
+            {showDetails && (
+              <div
+                id="error-technical-details"
+                className="px-4 pb-4 pt-0 text-left"
+              >
+                <pre className="text-xs text-red-600/70 font-mono bg-white/50 p-3 rounded-lg border border-red-200/50 break-words whitespace-pre-wrap max-h-40 overflow-y-auto">
+                  {safeError.message || "An unknown error occurred"}
+                  {safeError.stack && `\n\n${safeError.stack}`}
+                </pre>
+              </div>
             )}
-          </button>
-          
-          {showDetails && (
-            <div id="error-technical-details" className="px-4 pb-4 pt-0 text-left">
-              <pre className="text-xs text-red-600/70 font-mono bg-white/50 p-3 rounded-lg border border-red-200/50 break-words whitespace-pre-wrap max-h-40 overflow-y-auto">
-                {safeError.message || "An unknown error occurred"}
-                {isDev && safeError.stack && `\n\n${safeError.stack}`}
-                {!isDev && "\n\n(Technical stack trace is hidden in production for security)"}
-              </pre>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
