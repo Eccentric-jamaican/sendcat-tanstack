@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "../ui/dialog";
+import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 
 interface MarkdownProps {
@@ -501,31 +502,30 @@ export const Markdown = ({
               You're about to navigate to an external site. Make sure you trust
               this link before continuing.
             </DialogDescription>
-            <p className="mt-3 truncate rounded-lg bg-fuchsia-50 px-3 py-2 font-mono text-xs text-fuchsia-900/70">
+            <p className="mt-3 truncate rounded-lg bg-primary/5 px-3 py-2 font-mono text-xs text-[var(--color-t3-berry-deep)]">
               {pendingUrl}
             </p>
             <Checkbox
               checked={rememberExternalChoice}
               onCheckedChange={setRememberExternalChoice}
-              labelClassName="mt-4 text-sm text-fuchsia-900/70"
+              labelClassName="mt-4 text-sm text-[var(--color-t3-berry-deep)] opacity-80"
             >
               Don't show this warning again
             </Checkbox>
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                type="button"
-                className="rounded-lg border border-fuchsia-100/80 px-4 py-2 text-sm font-medium text-fuchsia-900/70 transition-colors hover:bg-fuchsia-50"
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="ghost"
+                className="text-foreground/70 hover:bg-primary/5 hover:text-foreground"
                 onClick={closeExternalDialog}
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-fuchsia-700"
+              </Button>
+              <Button
+                className="bg-primary text-white shadow-[0_2px_10px_rgba(162,59,103,0.3)] hover:opacity-95"
                 onClick={handleExternalContinue}
               >
                 Continue
-              </button>
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
