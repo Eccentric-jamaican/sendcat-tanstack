@@ -505,6 +505,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const shareRequestRef = useRef(false);
 
   useEffect(() => {
     setShareToken(null);
@@ -513,10 +514,12 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   }, [activeThreadId]);
 
   useEffect(() => {
-    if (!isShareOpen || !activeThreadId || shareToken || shareLoading) return;
+    if (!isShareOpen || !activeThreadId || shareToken) return;
+    if (shareRequestRef.current) return;
     let cancelled = false;
     const loadShareToken = async () => {
       try {
+        shareRequestRef.current = true;
         setShareLoading(true);
         setShareError(null);
         const result = await createShareToken({
@@ -529,20 +532,22 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
         if (cancelled) return;
         setShareError(err?.message || "Unable to create share link.");
       } finally {
-        if (cancelled) return;
-        setShareLoading(false);
+        shareRequestRef.current = false;
+        if (!cancelled) {
+          setShareLoading(false);
+        }
       }
     };
     loadShareToken();
     return () => {
       cancelled = true;
+      shareRequestRef.current = false;
     };
   }, [
     activeThreadId,
     createShareToken,
     isShareOpen,
     sessionId,
-    shareLoading,
     shareToken,
   ]);
 
