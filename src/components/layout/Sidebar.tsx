@@ -56,6 +56,7 @@ import {
 } from "../ui/dropdown-menu";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogTitle,
@@ -963,7 +964,21 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
       </div>
 
       <Dialog open={isShareOpen} onOpenChange={setIsShareOpen}>
-        <DialogContent>
+        <DialogContent
+          overlayProps={{ onPointerDown: () => setIsShareOpen(false) }}
+          onPointerDownOutside={() => setIsShareOpen(false)}
+          onInteractOutside={() => setIsShareOpen(false)}
+          onEscapeKeyDown={() => setIsShareOpen(false)}
+        >
+          <DialogClose asChild>
+            <button
+              type="button"
+              className="absolute right-4 top-4 rounded-full p-1 text-foreground/40 transition-colors hover:bg-black/10 hover:text-foreground/70"
+              aria-label="Close share dialog"
+            >
+              <X size={14} />
+            </button>
+          </DialogClose>
           <DialogTitle>Share this chat</DialogTitle>
           <DialogDescription>
             Anyone with this link can open and continue the conversation.
