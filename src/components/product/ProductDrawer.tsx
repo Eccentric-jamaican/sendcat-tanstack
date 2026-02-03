@@ -63,7 +63,7 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
     ? getProductImageUrl(product) || imageFallback
     : "";
   const primaryUrl = product?.productUrl || product?.url;
-  const isEbayListing = product?.source === "ebay" && isEbayUrl(primaryUrl);
+  const isEbayListing = isEbayUrl(primaryUrl);
   const affiliateUrl = isEbayListing
     ? buildEpnUrl(primaryUrl || "", epnConfig)
     : primaryUrl;
@@ -123,6 +123,7 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
           image:
             data.image?.imageUrl || data.additionalImages?.[0]?.imageUrl || "",
           url: data.itemWebUrl,
+          source: "ebay",
           sellerName: data.seller?.username,
           sellerFeedback: data.seller?.feedbackPercentage
             ? `${data.seller.feedbackPercentage}%`
