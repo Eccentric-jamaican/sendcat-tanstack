@@ -35,6 +35,7 @@ Key behaviors
 
 - Support a Firecrawl-backed fetch for external URLs with structured data and readable text.
 - Allow choosing Firecrawl for search results or fallback when standard fetching fails.
+- Enrich global product results by resolving merchant product links when only Google Shopping URLs are available.
 - Store extraction metadata (source url, status, timing) for debugging and UX transparency.
 
 Likely files to touch
