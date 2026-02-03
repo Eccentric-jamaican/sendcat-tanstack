@@ -1,14 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  categoryDetails,
-  subcategoryDetails,
-  type ShopItem,
-} from "../data/explore";
+import { type ShopItem } from "../data/explore";
 import { Search, ChevronLeft, Star } from "lucide-react";
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { useEffect, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
+import { getGradientForCategory } from "../data/exploreTaxonomy";
 
 export const Route = createFileRoute(
   "/explore/category/$categoryId/$subCategoryId",
@@ -19,25 +16,31 @@ export const Route = createFileRoute(
 function SubcategoryPage() {
   const { categoryId, subCategoryId } = Route.useParams();
   const isMobile = useIsMobile();
-  const detail = subcategoryDetails[subCategoryId];
-  const category = categoryDetails[categoryId];
-  const isCategoryMatch =
-    Boolean(detail) &&
-    Boolean(category) &&
-    detail.parentCategory === category.name;
   const getExploreItems = useAction(api.explore.getExploreItems);
-  const [items, setItems] = useState<ShopItem[]>(detail?.items || []);
+  const parentCategory = useQuery(api.ebayTaxonomy.getCategoryById, {
+    categoryId,
+  });
+  const subcategories = useQuery(api.ebayTaxonomy.listChildCategories, {
+    categoryId,
+  });
+  const subcategory = subcategories?.find(
+    (entry) => entry.categoryId === subCategoryId,
+  );
+  const [items, setItems] = useState<ShopItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const bannerGradient = getGradientForCategory(
+    subcategory?.categoryName ?? "Category",
+  );
 
   useEffect(() => {
-    if (!detail || !isCategoryMatch) return;
+    if (!subcategory) return;
     const fetchData = async () => {
       try {
         setIsLoading(true);
         setItems([]);
         const data = await getExploreItems({
-          categoryId,
-          subCategoryId: detail.id, // Use mapped ID or raw ID
+          categoryId: subcategory.categoryId,
+          categoryName: subcategory.categoryName,
         });
         setItems(data);
       } catch (e) {
@@ -47,9 +50,9 @@ function SubcategoryPage() {
       }
     };
     fetchData();
-  }, [detail, categoryId, getExploreItems]);
+  }, [subcategory, getExploreItems]);
 
-  if (!detail || !isCategoryMatch) {
+  if (subcategories !== undefined && !subcategory) {
     return (
       <div className="flex flex-1 items-center justify-center bg-background">
         <div className="space-y-4 text-center">
@@ -85,10 +88,10 @@ function SubcategoryPage() {
           </Link>
           <div className="hidden flex-col md:flex">
             <span className="text-[10px] leading-none font-black tracking-widest text-foreground/30 uppercase">
-              {detail.parentCategory}
+              {parentCategory?.categoryName ?? "Category"}
             </span>
             <span className="text-sm leading-tight font-bold text-foreground/90 md:text-lg">
-              {detail.name}
+              {subcategory?.categoryName ?? "Subcategory"}
             </span>
           </div>
         </div>
@@ -100,7 +103,7 @@ function SubcategoryPage() {
           />
           <input
             type="text"
-            placeholder={`Search in ${detail.name}...`}
+            placeholder={`Search in ${subcategory?.categoryName ?? "this subcategory"}...`}
             className="w-full rounded-full border-none bg-black/5 py-1.5 pr-4 pl-10 text-xs transition-all outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
@@ -115,16 +118,16 @@ function SubcategoryPage() {
       >
         {/* Banner */}
         <section className="group relative h-[200px] overflow-hidden rounded-[32px] shadow-lg shadow-black/5">
-          <img
-            src={detail.image}
-            alt={detail.name}
-            className="absolute inset-0 h-full w-full object-cover brightness-75 grayscale-[0.3]"
+          <div
+            className={`absolute inset-0 bg-gradient-to-br ${bannerGradient}`}
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/50 to-transparent" />
           <div className="absolute inset-0 flex flex-col justify-center space-y-2 px-10">
-            <h1 className="text-4xl font-black text-white">{detail.name}</h1>
+            <h1 className="text-4xl font-black text-white">
+              {subcategory?.categoryName ?? "Subcategory"}
+            </h1>
             <p className="font-medium text-white/60">
-              Curated {detail.name.toLowerCase()} essentials
+              Curated picks sourced from eBay&apos;s marketplace.
             </p>
           </div>
         </section>
@@ -199,7 +202,8 @@ function SubcategoryPage() {
       </main>
 
       <footer className="border-t border-black/5 py-12 text-center text-xs text-foreground/30">
-        &copy; 2024 Sendcat. {detail.parentCategory} &rsaquo; {detail.name}
+        &copy; 2024 Sendcat. {parentCategory?.categoryName ?? "Category"}{" "}
+        &rsaquo; {subcategory?.categoryName ?? "Subcategory"}
       </footer>
     </>
   );
