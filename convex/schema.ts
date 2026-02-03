@@ -273,7 +273,14 @@ export default defineSchema({
     leaf: v.boolean(),
   })
     .index("by_marketplace", ["marketplaceId"])
-    .index("by_category_id", ["categoryId"]),
+    .index("by_category_id", ["categoryId"])
+    .index("by_marketplace_parent", ["marketplaceId", "parentId"]),
+
+  ebayTaxonomyMeta: defineTable({
+    marketplaceId: v.string(),
+    rootCategoryId: v.optional(v.string()),
+    fetchedAt: v.number(),
+  }).index("by_marketplace", ["marketplaceId"]),
 
   favoriteLists: defineTable({
     userId: v.string(),

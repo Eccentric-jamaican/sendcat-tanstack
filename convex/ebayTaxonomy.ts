@@ -2,6 +2,7 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  query,
 } from "./_generated/server";
 import { v } from "convex/values";
 import { getApplicationToken } from "./ebay";
@@ -22,6 +23,10 @@ type FlatCategory = {
   path: string;
   leaf: boolean;
 };
+
+function resolveMarketplaceId(value?: string) {
+  return value ?? process.env.EBAY_MARKETPLACE_ID ?? "EBAY_US";
+}
 
 function normalizeCategoryName(value: string) {
   return value
@@ -120,6 +125,31 @@ export const clearEbayTaxonomy = internalMutation({
   },
 });
 
+export const setEbayTaxonomyMeta = internalMutation({
+  args: {
+    marketplaceId: v.string(),
+    rootCategoryId: v.optional(v.string()),
+    fetchedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("ebayTaxonomyMeta")
+      .withIndex("by_marketplace", (q) =>
+        q.eq("marketplaceId", args.marketplaceId),
+      )
+      .collect();
+    for (const entry of existing) {
+      await ctx.db.delete(entry._id);
+    }
+
+    await ctx.db.insert("ebayTaxonomyMeta", {
+      marketplaceId: args.marketplaceId,
+      rootCategoryId: args.rootCategoryId,
+      fetchedAt: args.fetchedAt,
+    });
+  },
+});
+
 export const insertEbayCategories = internalMutation({
   args: {
     marketplaceId: v.string(),
@@ -170,9 +200,15 @@ export const refreshEbayTaxonomy = internalAction({
 
     const flattened = flattenCategoryTree(rootNode);
     const now = Date.now();
+    const rootCategoryId = rootNode.category?.categoryId;
 
     await ctx.runMutation(internal.ebayTaxonomy.clearEbayTaxonomy, {
       marketplaceId,
+    });
+    await ctx.runMutation(internal.ebayTaxonomy.setEbayTaxonomyMeta, {
+      marketplaceId,
+      rootCategoryId,
+      fetchedAt: now,
     });
 
     const chunkSize = 200;
@@ -242,5 +278,110 @@ export const findEbayCategoryId = internalQuery({
 
     if (!best || best.score < 60) return null;
     return best.entry.categoryId as string;
+  },
+});
+
+export const listTopCategories = query({
+  args: {
+    marketplaceId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const marketplaceId = resolveMarketplaceId(args.marketplaceId);
+    const meta = await ctx.db
+      .query("ebayTaxonomyMeta")
+      .withIndex("by_marketplace", (q) => q.eq("marketplaceId", marketplaceId))
+      .first();
+    const rootId = meta?.rootCategoryId;
+
+    if (!rootId) {
+      const roots = await ctx.db
+        .query("ebayCategories")
+        .withIndex("by_marketplace", (q) => q.eq("marketplaceId", marketplaceId))
+        .filter((q) => q.eq(q.field("parentId"), undefined))
+        .collect();
+
+      if (roots.length === 0) return [];
+      const root = roots[0];
+      const children = await ctx.db
+        .query("ebayCategories")
+        .withIndex("by_marketplace_parent", (q) =>
+          q.eq("marketplaceId", marketplaceId).eq("parentId", root.categoryId),
+        )
+        .collect();
+
+      return children
+        .map((entry) => ({
+          categoryId: entry.categoryId,
+          categoryName: entry.categoryName,
+          path: entry.path,
+        }))
+        .sort((a, b) => a.categoryName.localeCompare(b.categoryName));
+    }
+
+    const children = await ctx.db
+      .query("ebayCategories")
+      .withIndex("by_marketplace_parent", (q) =>
+        q.eq("marketplaceId", marketplaceId).eq("parentId", rootId),
+      )
+      .collect();
+
+    return children
+      .map((entry) => ({
+        categoryId: entry.categoryId,
+        categoryName: entry.categoryName,
+        path: entry.path,
+      }))
+      .sort((a, b) => a.categoryName.localeCompare(b.categoryName));
+  },
+});
+
+export const listChildCategories = query({
+  args: {
+    categoryId: v.string(),
+    marketplaceId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const marketplaceId = resolveMarketplaceId(args.marketplaceId);
+    const children = await ctx.db
+      .query("ebayCategories")
+      .withIndex("by_marketplace_parent", (q) =>
+        q.eq("marketplaceId", marketplaceId).eq("parentId", args.categoryId),
+      )
+      .collect();
+
+    return children
+      .map((entry) => ({
+        categoryId: entry.categoryId,
+        categoryName: entry.categoryName,
+        path: entry.path,
+      }))
+      .sort((a, b) => a.categoryName.localeCompare(b.categoryName));
+  },
+});
+
+export const getCategoryById = query({
+  args: {
+    categoryId: v.string(),
+    marketplaceId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const marketplaceId = resolveMarketplaceId(args.marketplaceId);
+    const matches = await ctx.db
+      .query("ebayCategories")
+      .withIndex("by_category_id", (q) => q.eq("categoryId", args.categoryId))
+      .collect();
+
+    if (matches.length === 0) return null;
+    const match =
+      matches.find((entry) => entry.marketplaceId === marketplaceId) ??
+      matches[0];
+
+    return {
+      categoryId: match.categoryId,
+      categoryName: match.categoryName,
+      path: match.path,
+      parentId: match.parentId,
+      leaf: match.leaf,
+    };
   },
 });

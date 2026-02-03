@@ -1,11 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   featuredCards,
-  categories,
-  categoryDetails,
   type ShopSection,
   type ShopItem,
 } from "../data/explore";
+import {
+  getGradientForCategory,
+  selectCuratedCategories,
+} from "../data/exploreTaxonomy";
 import {
   Search,
   ChevronRight,
@@ -15,9 +17,9 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useIsMobile } from "../hooks/useIsMobile";
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ProductCard } from "../components/product/ProductCard";
 import { type Product } from "../data/mockProducts";
 
@@ -26,9 +28,16 @@ export const Route = createFileRoute("/explore/")({ component: ExplorePage });
 function ExplorePage() {
   const isMobile = useIsMobile();
   const getExploreItems = useAction(api.explore.getExploreItems);
+  const taxonomyCategories = useQuery(api.ebayTaxonomy.listTopCategories);
   const [shopSections, setShopSections] = useState<ShopSection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const currentYear = new Date().getFullYear();
+  const curatedCategories = useMemo(
+    () =>
+      taxonomyCategories ? selectCuratedCategories(taxonomyCategories) : [],
+    [taxonomyCategories],
+  );
+  const isTaxonomyLoading = taxonomyCategories === undefined;
 
   useEffect(() => {
     const fetchSections = async () => {
@@ -142,15 +151,28 @@ function ExplorePage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {categories
-              .filter((cat) => Boolean(categoryDetails[cat.id]))
-              .map((cat, idx) => (
+          {isTaxonomyLoading ? (
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              {[...Array(8)].map((_, idx) => (
+                <div
+                  key={idx}
+                  className="aspect-square animate-pulse rounded-3xl bg-black/5"
+                />
+              ))}
+            </div>
+          ) : curatedCategories.length === 0 ? (
+            <div className="rounded-3xl border border-black/5 bg-black/[0.02] p-8 text-sm text-foreground/60">
+              We&apos;re still syncing the category tree. Please check back in a
+              moment.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              {curatedCategories.map((cat, idx) => (
                 <Link
-                  key={cat.id}
+                  key={cat.categoryId}
                   to="/explore/category/$categoryId"
                   params={{
-                    categoryId: cat.id,
+                    categoryId: cat.categoryId,
                   }}
                   className="block"
                 >
@@ -161,21 +183,22 @@ function ExplorePage() {
                     whileHover={{ scale: 1.02, y: -4 }}
                     className="group relative aspect-square cursor-pointer overflow-hidden rounded-3xl shadow-sm"
                   >
-                    <img
-                      src={cat.image}
-                      alt={cat.name}
-                      className="absolute inset-0 h-full w-full object-cover grayscale-[0.2] transition-all group-hover:grayscale-0"
+                    <div
+                      className={`absolute inset-0 bg-gradient-to-br ${getGradientForCategory(
+                        cat.categoryName,
+                      )}`}
                     />
-                    <div className="absolute inset-0 bg-black/30 transition-colors group-hover:bg-black/10" />
+                    <div className="absolute inset-0 bg-black/10 transition-colors group-hover:bg-black/5" />
                     <div className="absolute inset-0 flex items-center justify-center p-4">
                       <span className="text-center text-lg font-bold text-white drop-shadow-md">
-                        {cat.name}
+                        {cat.categoryName}
                       </span>
                     </div>
                   </motion.div>
                 </Link>
               ))}
-          </div>
+            </div>
+          )}
         </section>
 
         {/* Shop App Style Sections */}

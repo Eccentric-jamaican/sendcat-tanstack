@@ -1,11 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { categoryDetails, type ShopItem } from "../data/explore";
+import { type ShopItem } from "../data/explore";
 import { Search, ChevronLeft, ArrowUpRight, Star } from "lucide-react";
 import { motion } from "framer-motion";
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
+import {
+  DEFAULT_SUBCATEGORY_LIMIT,
+  getGradientForCategory,
+} from "../data/exploreTaxonomy";
 
 export const Route = createFileRoute("/explore/category/$categoryId/")({
   component: CategoryIndexPage,
@@ -14,16 +18,31 @@ export const Route = createFileRoute("/explore/category/$categoryId/")({
 function CategoryIndexPage() {
   const { categoryId } = Route.useParams();
   const isMobile = useIsMobile();
-  const detail = categoryDetails[categoryId];
   const getExploreItems = useAction(api.explore.getExploreItems);
-  const [items, setItems] = useState<ShopItem[]>(detail?.featuredItems || []);
+  const category = useQuery(api.ebayTaxonomy.getCategoryById, { categoryId });
+  const subcategories = useQuery(api.ebayTaxonomy.listChildCategories, {
+    categoryId,
+  });
+  const [items, setItems] = useState<ShopItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showAllSubcategories, setShowAllSubcategories] = useState(false);
+  const visibleSubcategories = useMemo(() => {
+    if (!subcategories) return [];
+    if (showAllSubcategories) return subcategories;
+    return subcategories.slice(0, DEFAULT_SUBCATEGORY_LIMIT);
+  }, [showAllSubcategories, subcategories]);
+  const heroGradient = category
+    ? getGradientForCategory(category.categoryName)
+    : "from-[#f6d365] via-[#fda085] to-[#fbc2eb]";
 
   useEffect(() => {
-    if (!detail) return;
+    if (!category) return;
     const fetchData = async () => {
       try {
-        const data = await getExploreItems({ categoryId: detail.id });
+        const data = await getExploreItems({
+          categoryId: category.categoryId,
+          categoryName: category.categoryName,
+        });
         setItems(data);
       } catch (e) {
         console.error(e);
@@ -32,9 +51,9 @@ function CategoryIndexPage() {
       }
     };
     fetchData();
-  }, [detail, getExploreItems]);
+  }, [category, getExploreItems]);
 
-  if (!detail) {
+  if (category === null) {
     return (
       <div className="flex flex-1 items-center justify-center bg-background">
         <div className="space-y-4 text-center">
@@ -73,7 +92,7 @@ function CategoryIndexPage() {
           />
           <input
             type="text"
-            placeholder={`Search in ${detail.name}...`}
+            placeholder={`Search in ${category?.categoryName ?? "this category"}...`}
             className="w-full rounded-full border-none bg-black/5 py-2 pr-4 pl-10 text-sm transition-all outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
@@ -88,12 +107,10 @@ function CategoryIndexPage() {
       >
         {/* Category Hero */}
         <section className="group relative h-[300px] overflow-hidden rounded-[40px] shadow-2xl shadow-black/5 md:h-[400px]">
-          <img
-            src={detail.image}
-            alt={detail.name}
-            className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+          <div
+            className={`absolute inset-0 bg-gradient-to-br ${heroGradient}`}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
 
           <div className="absolute right-10 bottom-10 left-10 space-y-4 text-left">
             <motion.h1
@@ -101,7 +118,7 @@ function CategoryIndexPage() {
               animate={{ opacity: 1, y: 0 }}
               className="text-4xl font-black tracking-tight text-white md:text-6xl"
             >
-              {detail.name}
+              {category?.categoryName ?? "Category"}
             </motion.h1>
             <motion.p
               initial={{ opacity: 0, y: 20 }}
@@ -109,7 +126,7 @@ function CategoryIndexPage() {
               transition={{ delay: 0.1 }}
               className="max-w-2xl text-lg leading-relaxed text-white/70"
             >
-              {detail.description}
+              Curated picks sourced from eBay&apos;s marketplace categories.
             </motion.p>
           </div>
         </section>
@@ -119,46 +136,75 @@ function CategoryIndexPage() {
           <h2 className="px-2 text-left text-2xl font-bold text-foreground/90">
             Subcategories
           </h2>
-          <div className="grid grid-cols-2 gap-4 px-2 md:grid-cols-4">
-            {detail.subcategories.map((sub, idx) => (
-              <Link
-                key={sub.id}
-                to="/explore/category/$categoryId/$subCategoryId"
-                params={{
-                  categoryId: categoryId,
-                  subCategoryId: sub.id,
-                }}
-                className="block"
-              >
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: idx * 0.1 }}
-                  whileHover={{ y: -5 }}
-                  className="group relative aspect-[4/3] cursor-pointer overflow-hidden rounded-3xl bg-black/5"
-                >
-                  <img
-                    src={sub.image}
-                    alt={sub.name}
-                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                  />
-                  <div className="absolute inset-0 bg-black/40 transition-colors group-hover:bg-black/20" />
-                  <div className="absolute right-4 bottom-4 left-4 text-center">
-                    <span className="text-lg font-bold text-white drop-shadow-md">
-                      {sub.name}
-                    </span>
-                  </div>
-                </motion.div>
-              </Link>
-            ))}
-          </div>
+          {subcategories === undefined ? (
+            <div className="grid grid-cols-2 gap-4 px-2 md:grid-cols-4">
+              {[...Array(8)].map((_, idx) => (
+                <div
+                  key={idx}
+                  className="aspect-[4/3] animate-pulse rounded-3xl bg-black/5"
+                />
+              ))}
+            </div>
+          ) : subcategories.length === 0 ? (
+            <div className="rounded-3xl border border-black/5 bg-black/[0.02] p-6 text-sm text-foreground/60">
+              No subcategories found for this category yet.
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4 px-2 md:grid-cols-4">
+                {visibleSubcategories.map((sub, idx) => (
+                  <Link
+                    key={sub.categoryId}
+                    to="/explore/category/$categoryId/$subCategoryId"
+                    params={{
+                      categoryId: categoryId,
+                      subCategoryId: sub.categoryId,
+                    }}
+                    className="block"
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      whileInView={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: idx * 0.05 }}
+                      whileHover={{ y: -5 }}
+                      className="group relative aspect-[4/3] cursor-pointer overflow-hidden rounded-3xl"
+                    >
+                      <div
+                        className={`absolute inset-0 bg-gradient-to-br ${getGradientForCategory(
+                          sub.categoryName,
+                        )}`}
+                      />
+                      <div className="absolute inset-0 bg-black/15 transition-colors group-hover:bg-black/5" />
+                      <div className="absolute right-4 bottom-4 left-4 text-center">
+                        <span className="text-lg font-bold text-white drop-shadow-md">
+                          {sub.categoryName}
+                        </span>
+                      </div>
+                    </motion.div>
+                  </Link>
+                ))}
+              </div>
+              {subcategories.length > DEFAULT_SUBCATEGORY_LIMIT && (
+                <div className="flex justify-center">
+                  <button
+                    onClick={() =>
+                      setShowAllSubcategories((prev) => !prev)
+                    }
+                    className="rounded-full border border-black/10 px-4 py-2 text-xs font-semibold text-foreground/70 transition-colors hover:bg-black/5"
+                  >
+                    {showAllSubcategories ? "Show fewer" : "View all"}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </section>
 
         {/* Featured Items (Shop App Style) */}
         <section className="space-y-8">
           <div className="flex items-center justify-between px-2">
             <h2 className="text-2xl font-bold text-foreground/90">
-              Featured in {detail.name}
+              Featured in {category?.categoryName ?? "this category"}
             </h2>
             <button className="flex items-center gap-1 text-sm font-bold text-primary hover:underline">
               View all <ArrowUpRight size={14} />
@@ -215,7 +261,7 @@ function CategoryIndexPage() {
       </main>
 
       <footer className="border-t border-black/5 py-12 text-center text-sm text-foreground/30">
-        &copy; 2024 Sendcat. {detail.name} discovery.
+        &copy; 2024 Sendcat. {category?.categoryName ?? "Category"} discovery.
       </footer>
     </>
   );
