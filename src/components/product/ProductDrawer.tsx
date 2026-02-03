@@ -209,7 +209,10 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
                     alt={product.title}
                     className="h-full w-full object-cover"
                     onError={(event) => {
-                      if (!imageFallback) return;
+                      if (!imageFallback) {
+                        event.currentTarget.classList.add("hidden");
+                        return;
+                      }
                       const target = event.currentTarget;
                       if (target.src === imageFallback) return;
                       target.src = imageFallback;
