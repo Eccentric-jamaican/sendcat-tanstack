@@ -963,7 +963,10 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
       </div>
 
       <Dialog open={isShareOpen} onOpenChange={setIsShareOpen}>
-        <DialogContent>
+        <DialogContent
+          onPointerDownOutside={() => setIsShareOpen(false)}
+          onEscapeKeyDown={() => setIsShareOpen(false)}
+        >
           <DialogTitle>Share this chat</DialogTitle>
           <DialogDescription>
             Anyone with this link can open and continue the conversation.
