@@ -4,6 +4,18 @@ import { Id, Doc } from "./_generated/dataModel";
 import { getAuthUserId, safeGetAuthUser } from "./auth";
 
 const isDebugMode = process.env.CONVEX_DEBUG_LOGS === "true";
+const shareTokenPrefix = "share_";
+
+function generateShareToken() {
+  const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+  if (cryptoObj?.randomUUID) {
+    return `${shareTokenPrefix}${cryptoObj.randomUUID()}`;
+  }
+  return `${shareTokenPrefix}${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 12)}`;
+}
 
 /**
  * Verify the current user has access to a thread.
@@ -213,6 +225,99 @@ export const rename = mutation({
     // Verify ownership before modifying
     await verifyThreadAccess(ctx, args.id, args.sessionId);
     await ctx.db.patch(args.id, { title: args.title });
+  },
+});
+
+export const createShareToken = mutation({
+  args: { threadId: v.id("threads"), sessionId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const { thread, userId } = await verifyThreadAccess(
+      ctx,
+      args.threadId,
+      args.sessionId,
+    );
+
+    const existing = await ctx.db
+      .query("sharedThreads")
+      .withIndex("by_thread", (q) => q.eq("threadId", thread._id))
+      .collect();
+
+    const activeToken = existing.find((entry) => !entry.isRevoked);
+    if (activeToken) {
+      return { shareToken: activeToken.shareToken };
+    }
+
+    const shareToken = generateShareToken();
+    await ctx.db.insert("sharedThreads", {
+      threadId: thread._id,
+      shareToken,
+      createdByUserId: userId ?? undefined,
+      createdBySessionId: thread.sessionId,
+      createdAt: Date.now(),
+      isRevoked: false,
+    });
+
+    return { shareToken };
+  },
+});
+
+export const createShareFork = mutation({
+  args: { token: v.string(), sessionId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const shareEntry = await ctx.db
+      .query("sharedThreads")
+      .withIndex("by_share_token", (q) => q.eq("shareToken", args.token))
+      .first();
+
+    if (!shareEntry || shareEntry.isRevoked) {
+      throw new Error("Share link is invalid or revoked");
+    }
+
+    const thread = await ctx.db.get(shareEntry.threadId);
+    if (!thread) {
+      throw new Error("Thread not found");
+    }
+
+    const userId = await getAuthUserId(ctx);
+    const sessionId = args.sessionId || thread.sessionId;
+
+    if (!sessionId && !userId) {
+      throw new Error("Missing session id");
+    }
+
+    const newThreadId = await ctx.db.insert("threads", {
+      title: thread.title || "Shared chat",
+      modelId: thread.modelId,
+      sessionId: sessionId || "",
+      userId: userId ?? undefined,
+      lastMessageAt: Date.now(),
+      parentThreadId: thread._id,
+      sharedFromThreadId: thread._id,
+    });
+
+    const messages = await ctx.db
+      .query("messages")
+      .withIndex("by_thread", (q) => q.eq("threadId", thread._id))
+      .order("asc")
+      .collect();
+
+    for (const message of messages) {
+      await ctx.db.insert("messages", {
+        threadId: newThreadId,
+        role: message.role,
+        content: message.content,
+        modelId: message.modelId,
+        status: message.status,
+        reasoningContent: message.reasoningContent,
+        attachments: message.attachments,
+        toolCalls: message.toolCalls,
+        toolCallId: message.toolCallId,
+        name: message.name,
+        products: message.products,
+      });
+    }
+
+    return { threadId: newThreadId };
   },
 });
 

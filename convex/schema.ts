@@ -14,6 +14,7 @@ export default defineSchema({
     lastMessageAt: v.optional(v.number()),
     isPinned: v.optional(v.boolean()),
     parentThreadId: v.optional(v.id("threads")),
+    sharedFromThreadId: v.optional(v.id("threads")),
   })
     .index("by_session", ["sessionId"])
     .index("by_user", ["userId"]),
@@ -292,4 +293,15 @@ export default defineSchema({
     .index("by_list", ["listId"])
     .index("by_user_item", ["userId", "externalId"])
     .index("by_user_item_type", ["userId", "externalId", "type"]),
+
+  sharedThreads: defineTable({
+    threadId: v.id("threads"),
+    shareToken: v.string(),
+    createdByUserId: v.optional(v.string()),
+    createdBySessionId: v.string(),
+    createdAt: v.number(),
+    isRevoked: v.boolean(),
+  })
+    .index("by_thread", ["threadId"])
+    .index("by_share_token", ["shareToken"]),
 });

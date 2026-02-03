@@ -14,6 +14,7 @@ import {
   ExternalLink,
   Sparkles,
   Download,
+  Loader2,
   ChevronRight,
   X,
   Compass,
@@ -53,6 +54,13 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "../ui/dialog";
+import { toast } from "sonner";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -458,6 +466,46 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   });
 
   useEffect(() => {
+    setShareToken(null);
+    setShareError(null);
+    setShareLoading(false);
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (!isShareOpen || !activeThreadId || shareToken || shareLoading) return;
+    let cancelled = false;
+    const loadShareToken = async () => {
+      try {
+        setShareLoading(true);
+        setShareError(null);
+        const result = await createShareToken({
+          threadId: activeThreadId,
+          sessionId,
+        });
+        if (cancelled) return;
+        setShareToken(result.shareToken);
+      } catch (err: any) {
+        if (cancelled) return;
+        setShareError(err?.message || "Unable to create share link.");
+      } finally {
+        if (cancelled) return;
+        setShareLoading(false);
+      }
+    };
+    loadShareToken();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeThreadId,
+    createShareToken,
+    isShareOpen,
+    sessionId,
+    shareLoading,
+    shareToken,
+  ]);
+
+  useEffect(() => {
     if (hasSyncedMobileRef.current) return;
     setInternalOpen(!isMobile);
     hasSyncedMobileRef.current = true;
@@ -491,12 +539,74 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const togglePinned = useMutation(api.threads.togglePinned);
   const removeThread = useMutation(api.threads.remove);
   const renameThread = useMutation(api.threads.rename);
+  const createShareToken = useMutation(api.threads.createShareToken);
+
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   const handleNewChat = async () => {
     // Navigate home to start a fresh chat
     navigate({ to: "/" });
     if (isMobile) setIsOpen(false);
   };
+
+  const getShareUrl = () => {
+    if (!shareToken) return "";
+    if (typeof window === "undefined") return `/share/${shareToken}`;
+    return `${window.location.origin}/share/${shareToken}`;
+  };
+
+  const handleOpenShare = () => {
+    if (!activeThreadId) {
+      toast.error("Open a chat to share.");
+      return;
+    }
+    setIsShareOpen(true);
+  };
+
+  const handleCopyShare = async () => {
+    const url = getShareUrl();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Share link copied");
+    } catch (err) {
+      toast.error("Failed to copy link");
+    }
+  };
+
+  const handleShareTo = (target: "x" | "whatsapp" | "instagram") => {
+    const url = getShareUrl();
+    if (!url) return;
+    const shareText = "Check out this chat";
+    const encodedUrl = encodeURIComponent(url);
+    const encodedText = encodeURIComponent(shareText);
+
+    if (target === "x") {
+      window.open(
+        `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
+      return;
+    }
+
+    if (target === "whatsapp") {
+      window.open(
+        `https://wa.me/?text=${encodeURIComponent(`${shareText} ${url}`)}`,
+        "_blank",
+        "noopener,noreferrer",
+      );
+      return;
+    }
+
+    handleCopyShare();
+    window.open("https://www.instagram.com/", "_blank", "noopener,noreferrer");
+  };
+
+  const shareUrl = getShareUrl();
 
   const handleCloseSidebar = () => {
     if (isMobile) setIsOpen(false);
@@ -826,7 +936,16 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
 
       {/* Settings & Primary Actions (Fixed Top Right) */}
       <div className="fixed top-4 right-4 z-[100] flex items-center gap-1.5 rounded-xl border border-black/5 bg-background/70 px-2 py-1.5 shadow-sm backdrop-blur-sm">
-        <button className="rounded-lg p-1.5 text-foreground/50 transition-colors hover:bg-black/10">
+        <button
+          onClick={handleOpenShare}
+          className={cn(
+            "rounded-lg p-1.5 transition-colors",
+            activeThreadId
+              ? "text-foreground/50 hover:bg-black/10"
+              : "text-foreground/20 cursor-not-allowed",
+          )}
+          aria-disabled={!activeThreadId}
+        >
           <ArrowUp size={18} />
         </button>
         <Link
@@ -836,6 +955,65 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
           <Settings size={18} />
         </Link>
       </div>
+
+      <Dialog open={isShareOpen} onOpenChange={setIsShareOpen}>
+        <DialogContent>
+          <DialogTitle>Share this chat</DialogTitle>
+          <DialogDescription>
+            Anyone with this link can open and continue the conversation.
+          </DialogDescription>
+
+          {shareLoading ? (
+            <div className="mt-6 flex items-center gap-3 text-foreground/60">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Generating share link…</span>
+            </div>
+          ) : shareError ? (
+            <p className="mt-4 text-sm text-red-500">{shareError}</p>
+          ) : (
+            <>
+              <div className="mt-4 flex items-center gap-2">
+                <input
+                  readOnly
+                  value={shareUrl}
+                  className="flex-1 truncate rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-xs text-foreground/70"
+                />
+                <button
+                  onClick={handleCopyShare}
+                  className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-primary-deep"
+                >
+                  Copy
+                </button>
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => handleShareTo("x")}
+                  className="rounded-lg border border-black/10 px-3 py-2 text-xs font-semibold text-foreground/70 transition-colors hover:bg-black/5"
+                >
+                  Share on X
+                </button>
+                <button
+                  onClick={() => handleShareTo("whatsapp")}
+                  className="rounded-lg border border-black/10 px-3 py-2 text-xs font-semibold text-foreground/70 transition-colors hover:bg-black/5"
+                >
+                  WhatsApp
+                </button>
+                <button
+                  onClick={() => handleShareTo("instagram")}
+                  className="rounded-lg border border-black/10 px-3 py-2 text-xs font-semibold text-foreground/70 transition-colors hover:bg-black/5"
+                >
+                  Instagram
+                </button>
+              </div>
+              <p className="mt-3 text-xs text-foreground/40">
+                Instagram will open in a new tab. Paste the link in your story or
+                bio.
+              </p>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

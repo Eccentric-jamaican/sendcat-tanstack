@@ -18,6 +18,7 @@ import { Route as FavoritesRouteImport } from './routes/favorites'
 import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ExploreIndexRouteImport } from './routes/explore.index'
+import { Route as ShareTokenRouteImport } from './routes/share.$token'
 import { Route as ExploreSearchRouteImport } from './routes/explore.search'
 import { Route as ChatThreadIdRouteImport } from './routes/chat.$threadId'
 import { Route as ExploreCategoryCategoryIdRouteImport } from './routes/explore.category.$categoryId'
@@ -76,6 +77,11 @@ const ExploreIndexRoute = ExploreIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ExploreRoute,
+} as any)
+const ShareTokenRoute = ShareTokenRouteImport.update({
+  id: '/share/$token',
+  path: '/share/$token',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ExploreSearchRoute = ExploreSearchRouteImport.update({
   id: '/search',
@@ -157,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/explore/search': typeof ExploreSearchRoute
+  '/share/$token': typeof ShareTokenRoute
   '/explore/': typeof ExploreIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/demo/api/names': typeof DemoApiNamesRoute
@@ -180,6 +187,7 @@ export interface FileRoutesByTo {
   '/sign-up': typeof SignUpRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/explore/search': typeof ExploreSearchRoute
+  '/share/$token': typeof ShareTokenRoute
   '/explore': typeof ExploreIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/demo/api/names': typeof DemoApiNamesRoute
@@ -204,6 +212,7 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/chat/$threadId': typeof ChatThreadIdRoute
   '/explore/search': typeof ExploreSearchRoute
+  '/share/$token': typeof ShareTokenRoute
   '/explore/': typeof ExploreIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/demo/api/names': typeof DemoApiNamesRoute
@@ -230,6 +239,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/chat/$threadId'
     | '/explore/search'
+    | '/share/$token'
     | '/explore/'
     | '/api/auth/$'
     | '/demo/api/names'
@@ -253,6 +263,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/chat/$threadId'
     | '/explore/search'
+    | '/share/$token'
     | '/explore'
     | '/api/auth/$'
     | '/demo/api/names'
@@ -276,6 +287,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/chat/$threadId'
     | '/explore/search'
+    | '/share/$token'
     | '/explore/'
     | '/api/auth/$'
     | '/demo/api/names'
@@ -300,6 +312,7 @@ export interface RootRouteChildren {
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
   ChatThreadIdRoute: typeof ChatThreadIdRoute
+  ShareTokenRoute: typeof ShareTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   DemoApiNamesRoute: typeof DemoApiNamesRoute
   DemoStartApiRequestRoute: typeof DemoStartApiRequestRoute
@@ -374,6 +387,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/explore/'
       preLoaderRoute: typeof ExploreIndexRouteImport
       parentRoute: typeof ExploreRoute
+    }
+    '/share/$token': {
+      id: '/share/$token'
+      path: '/share/$token'
+      fullPath: '/share/$token'
+      preLoaderRoute: typeof ShareTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/explore/search': {
       id: '/explore/search'
@@ -511,6 +531,7 @@ const rootRouteChildren: RootRouteChildren = {
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
   ChatThreadIdRoute: ChatThreadIdRoute,
+  ShareTokenRoute: ShareTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   DemoApiNamesRoute: DemoApiNamesRoute,
   DemoStartApiRequestRoute: DemoStartApiRequestRoute,
