@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import { LandingHero } from "../components/chat/LandingHero";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Markdown } from "../components/chat/Markdown";
 import {
   Tooltip,
@@ -152,6 +152,17 @@ function ChatPage() {
   const [expandedProducts, setExpandedProducts] = useState<Product[] | null>(
     null,
   );
+  const productLookup = useMemo(() => {
+    const lookup = new Map<string, Product>();
+    messages?.forEach((message: any) => {
+      if (!Array.isArray(message.products)) return;
+      message.products.forEach((product: Product) => {
+        if (!product?.id || lookup.has(product.id)) return;
+        lookup.set(product.id, product);
+      });
+    });
+    return lookup;
+  }, [messages]);
 
   const handleOpenExpanded = (products: Product[]) => {
     setExpandedProducts(products);
@@ -727,7 +738,10 @@ function ChatPage() {
         {productId && (
           <ProductDrawer
             productId={productId}
-            initialData={expandedProducts?.find((p) => p.id === productId)}
+            initialData={
+              expandedProducts?.find((p) => p.id === productId) ||
+              productLookup.get(productId)
+            }
           />
         )}
       </AnimatePresence>
