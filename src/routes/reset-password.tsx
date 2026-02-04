@@ -32,7 +32,6 @@ function ResetPassword() {
   const passwordRequirements = useMemo(
     () => [
       { text: "At least 8 characters", met: password.length >= 8 },
-      { text: "Contains a number", met: /\d/.test(password) },
     ],
     [password],
   );
