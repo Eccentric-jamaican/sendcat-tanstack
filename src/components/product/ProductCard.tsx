@@ -54,8 +54,16 @@ export function ProductCard({ product }: ProductCardProps) {
   };
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={handleClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleClick();
+        }
+      }}
       className="group block text-left w-full"
     >
       <div className="flex flex-col gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-xl transition-all duration-300 hover:bg-white/40 hover:shadow-sm">
@@ -77,9 +85,12 @@ export function ProductCard({ product }: ProductCardProps) {
             product={product}
             trigger={
               <button
+                type="button"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
                 className={cn(
                   "absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm transition-all hover:bg-white hover:scale-110 shadow-sm",
-                  isFavorited ? "text-primary" : "text-gray-400"
+                  isFavorited ? "text-primary" : "text-gray-400",
                 )}
               >
                 <Heart
@@ -153,6 +164,6 @@ export function ProductCard({ product }: ProductCardProps) {
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
