@@ -38,21 +38,6 @@ export function GlobalToolResult({
     }
   }, [result]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 py-2 text-sm text-foreground/60">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
-        <span>
-          {query
-            ? `Searching global sites for: "${query}"...`
-            : "Searching global sites..."}
-        </span>
-      </div>
-    );
-  }
-
-  if (!resultText) return null;
-
   const countMatch = resultText.match(/found\s+(\d+)\s+items?/i);
   const count = countMatch ? Number.parseInt(countMatch[1], 10) : null;
 
@@ -74,6 +59,21 @@ export function GlobalToolResult({
       total_count: count ?? null,
     });
   }, [count, isLoading, query, resultText]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-2 text-sm text-foreground/60">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+        <span>
+          {query
+            ? `Searching global sites for: "${query}"...`
+            : "Searching global sites..."}
+        </span>
+      </div>
+    );
+  }
+
+  if (!resultText) return null;
 
   return (
     <div className="my-2 overflow-hidden rounded-lg text-sm">

@@ -93,22 +93,6 @@ export function EbayToolResult({
     }
   }, [result]);
 
-  if (isLoading) {
-    const loadingLabel =
-      loadingText ||
-      (query
-        ? `Searching products for: \"${query}\"...`
-        : "Searching products...");
-    return (
-      <div className="flex items-center gap-2 py-2 text-sm text-foreground/60">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
-        <span>{loadingLabel}</span>
-      </div>
-    );
-  }
-
-  if (!resultText) return null;
-
   const countMatch = resultText.match(/found\s+(\d+)\s+items?/i);
   const count = countMatch ? Number.parseInt(countMatch[1], 10) : null;
   const ebayCountMatch = resultText.match(
@@ -136,6 +120,22 @@ export function EbayToolResult({
       global_count: globalCount,
     });
   }, [combinedCount, count, ebayCount, globalCount, isLoading, query, resultText]);
+
+  if (isLoading) {
+    const loadingLabel =
+      loadingText ||
+      (query
+        ? `Searching products for: \"${query}\"...`
+        : "Searching products...");
+    return (
+      <div className="flex items-center gap-2 py-2 text-sm text-foreground/60">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+        <span>{loadingLabel}</span>
+      </div>
+    );
+  }
+
+  if (!resultText) return null;
 
   let summary = resultText;
   if (/limit reached/i.test(resultText)) {

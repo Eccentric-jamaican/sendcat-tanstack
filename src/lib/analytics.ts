@@ -107,6 +107,7 @@ export const resetAnalytics = () => {
   if (analyticsInitialized) {
     posthog.reset();
   }
+  seenProductViews.clear();
   localStorage.removeItem(DISTINCT_ID_KEY);
   localStorage.removeItem(USER_ID_KEY);
   analyticsInitialized = false;
@@ -178,12 +179,12 @@ export const startSessionTracking = () => {
     });
   };
 
-  window.addEventListener("visibilitychange", handleVisibilityChange);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
   window.addEventListener("pagehide", finalizeSession);
   window.addEventListener("beforeunload", finalizeSession);
 
   return () => {
-    window.removeEventListener("visibilitychange", handleVisibilityChange);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
     window.removeEventListener("pagehide", finalizeSession);
     window.removeEventListener("beforeunload", finalizeSession);
     finalizeSession();
