@@ -91,19 +91,27 @@ import { authClient } from "../lib/auth";
 import { useVisualViewport } from "../hooks/useVisualViewport";
 import { initSentry } from "../lib/sentry";
 
+if (typeof window !== "undefined") {
+  initSentry();
+}
+
 function RootDocument({ children }: { children: React.ReactNode }) {
   // Initialize virtual keyboard tracking
   useVisualViewport();
 
   useEffect(() => {
-    initSentry();
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js").catch((err) => {
-          console.error("Service Worker registration failed:", err);
-        });
+    if (!("serviceWorker" in navigator)) return;
+
+    const handleLoad = () => {
+      navigator.serviceWorker.register("/sw.js").catch((err) => {
+        console.error("Service Worker registration failed:", err);
       });
-    }
+    };
+
+    window.addEventListener("load", handleLoad);
+    return () => {
+      window.removeEventListener("load", handleLoad);
+    };
   }, []);
 
   return (

@@ -6,25 +6,31 @@ export function initSentryServer() {
   if (sentryServerInitialized) return;
   const dsn = process.env.SENTRY_DSN;
   if (!dsn) return;
-  sentryServerInitialized = true;
   const tracesSampleRate = Number.parseFloat(
     process.env.SENTRY_TRACES_SAMPLE_RATE || "0.1",
   );
+  const sanitizedSampleRate = Number.isFinite(tracesSampleRate)
+    ? Math.min(1, Math.max(0, tracesSampleRate))
+    : 0.1;
 
-  Sentry.init({
-    dsn,
-    environment: process.env.NODE_ENV || "development",
-    release: process.env.SENTRY_RELEASE,
-    tracesSampleRate: Number.isFinite(tracesSampleRate)
-      ? tracesSampleRate
-      : 0.1,
-  });
+  try {
+    Sentry.init({
+      dsn,
+      environment: process.env.NODE_ENV || "development",
+      release: process.env.SENTRY_RELEASE,
+      tracesSampleRate: sanitizedSampleRate,
+    });
+    sentryServerInitialized = true;
+  } catch (error) {
+    console.error("Sentry server initialization failed:", error);
+  }
 }
 
-export function captureServerException(error: unknown) {
+export async function captureServerException(error: unknown) {
   initSentryServer();
   if (sentryServerInitialized) {
     Sentry.captureException(error);
+    await Sentry.flush(2000);
   }
 }
 
@@ -36,7 +42,7 @@ export function withSentry<TArgs extends unknown[], TResult>(
     try {
       return await handler(...args);
     } catch (error) {
-      captureServerException(error);
+      await captureServerException(error);
       throw error;
     }
   };
