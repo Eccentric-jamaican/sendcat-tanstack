@@ -4,16 +4,24 @@ type SendEmailInput = {
   html: string;
   text?: string;
   replyTo?: string;
+  from?: string;
 };
 
-export async function sendEmail({ to, subject, html, text, replyTo }: SendEmailInput) {
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  text,
+  replyTo,
+  from,
+}: SendEmailInput) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM;
+  const resolvedFrom = from || process.env.EMAIL_FROM;
 
   if (!apiKey) {
     throw new Error("Missing required env var RESEND_API_KEY");
   }
-  if (!from) {
+  if (!resolvedFrom) {
     throw new Error("Missing required env var EMAIL_FROM");
   }
 
@@ -24,7 +32,7 @@ export async function sendEmail({ to, subject, html, text, replyTo }: SendEmailI
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from,
+      from: resolvedFrom,
       to,
       subject,
       html,

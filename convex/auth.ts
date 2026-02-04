@@ -36,6 +36,9 @@ const truncateId = (id: string): string => {
 // Only emit verbose logs in development (set CONVEX_DEBUG_LOGS=true in Convex dashboard)
 const isDebugMode = process.env.CONVEX_DEBUG_LOGS === "true";
 const BRAND_COLOR = "#111827";
+const SUPPORT_REPLY_TO = "support@mail.sendcat.app";
+const DEFAULT_FROM = "SendCat <no-reply@mail.sendcat.app>";
+const WELCOME_FROM = "SendCat <hi@mail.sendcat.app>";
 
 const getAppUrl = (): string => {
   if (process.env.APP_URL) {
@@ -90,7 +93,8 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
             subject: "Welcome to SendCat",
             html,
             text,
-            replyTo: "support@mail.sendcat.app",
+            replyTo: SUPPORT_REPLY_TO,
+            from: process.env.WELCOME_EMAIL_FROM || WELCOME_FROM,
           });
           if (isDebugMode) {
             console.log("[AUTH EMAIL] Welcome email sent:", maskEmail(doc.email));
@@ -276,7 +280,8 @@ export const createAuth: CreateAuth<DataModel> = (ctx) => {
           subject: "Reset your SendCat password",
           html,
           text,
-          replyTo: "support@mail.sendcat.app",
+          replyTo: SUPPORT_REPLY_TO,
+          from: process.env.EMAIL_FROM || DEFAULT_FROM,
         });
         if (isDebugMode) {
           console.log("[AUTH EMAIL] Reset password email sent:", maskEmail(user.email));
