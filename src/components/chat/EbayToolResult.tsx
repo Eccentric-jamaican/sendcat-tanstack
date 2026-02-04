@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ShoppingBag, ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { trackEvent } from "../../lib/analytics";
 
 interface EbayToolResultProps {
   isLoading: boolean;
@@ -18,6 +19,7 @@ export function EbayToolResult({
   loadingText,
 }: EbayToolResultProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const hasTrackedResult = useRef(false);
 
   const parsedArgs = useMemo(() => {
     if (!args) return null;
@@ -91,22 +93,6 @@ export function EbayToolResult({
     }
   }, [result]);
 
-  if (isLoading) {
-    const loadingLabel =
-      loadingText ||
-      (query
-        ? `Searching products for: \"${query}\"...`
-        : "Searching products...");
-    return (
-      <div className="flex items-center gap-2 py-2 text-sm text-foreground/60">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
-        <span>{loadingLabel}</span>
-      </div>
-    );
-  }
-
-  if (!resultText) return null;
-
   const countMatch = resultText.match(/found\s+(\d+)\s+items?/i);
   const count = countMatch ? Number.parseInt(countMatch[1], 10) : null;
   const ebayCountMatch = resultText.match(
@@ -122,6 +108,34 @@ export function EbayToolResult({
   const combinedCount =
     (typeof ebayCount === "number" ? ebayCount : 0) +
     (typeof globalCount === "number" ? globalCount : 0);
+
+  useEffect(() => {
+    if (hasTrackedResult.current || isLoading || !resultText) return;
+    hasTrackedResult.current = true;
+    trackEvent("tool_result_render", {
+      tool_name: "search_products",
+      query,
+      total_count: combinedCount > 0 ? combinedCount : count ?? null,
+      ebay_count: ebayCount,
+      global_count: globalCount,
+    });
+  }, [combinedCount, count, ebayCount, globalCount, isLoading, query, resultText]);
+
+  if (isLoading) {
+    const loadingLabel =
+      loadingText ||
+      (query
+        ? `Searching products for: \"${query}\"...`
+        : "Searching products...");
+    return (
+      <div className="flex items-center gap-2 py-2 text-sm text-foreground/60">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+        <span>{loadingLabel}</span>
+      </div>
+    );
+  }
+
+  if (!resultText) return null;
 
   let summary = resultText;
   if (/limit reached/i.test(resultText)) {

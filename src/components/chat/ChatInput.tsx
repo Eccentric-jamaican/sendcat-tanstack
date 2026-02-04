@@ -18,6 +18,7 @@ import { cn } from "../../lib/utils";
 import { ModelPicker } from "./ModelPicker";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { toast } from "sonner";
+import { trackEvent } from "../../lib/analytics";
 
 export interface ChatInputProps {
   existingThreadId?: string;
@@ -37,19 +38,32 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const [isGenerating, setIsGenerating] = useState(false);
     const [showBanner, setShowBanner] = useState(true);
 
-    const [selectedModelId, setSelectedModelId] = useState(() => {
-      if (typeof window !== "undefined") {
-        const saved = localStorage.getItem("t3_selected_model");
-        if (saved) return saved;
+    const [selectedModelId, setSelectedModelId] = useState(
+      "openai/gpt-oss-120b:free",
+    );
+
+    useEffect(() => {
+      if (typeof window === "undefined") return;
+      const saved = localStorage.getItem("t3_selected_model");
+      if (saved) {
+        setSelectedModelId(saved);
       }
-      return "openai/gpt-oss-120b:free";
-    });
+    }, []);
 
     useEffect(() => {
       if (typeof window !== "undefined") {
         localStorage.setItem("t3_selected_model", selectedModelId);
       }
     }, [selectedModelId]);
+
+    const handleModelSelect = (modelId: string) => {
+      if (modelId === selectedModelId) return;
+      trackEvent("model_switch", {
+        from: selectedModelId,
+        to: modelId,
+      });
+      setSelectedModelId(modelId);
+    };
 
     const [reasoningEffort, setReasoningEffort] = useState<string | null>(null);
     const [searchEnabled, setSearchEnabled] = useState(false);
@@ -76,14 +90,36 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       }
     };
 
-    const [sessionId] = useState(() => {
-      if (typeof window === "undefined") return "";
+    const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+    const [sessionReady, setSessionReady] = useState(false);
+
+    useEffect(() => {
+      if (typeof window === "undefined") return;
       const saved = localStorage.getItem("sendcat_session_id");
-      if (saved) return saved;
+      if (saved) {
+        setSessionId(saved);
+        setSessionReady(true);
+        return;
+      }
       const newId = uuidv4();
       localStorage.setItem("sendcat_session_id", newId);
+      setSessionId(newId);
+      setSessionReady(true);
+    }, []);
+
+    const getSessionId = () => {
+      if (sessionId) return sessionId;
+      if (typeof window === "undefined") return undefined;
+      const saved = localStorage.getItem("sendcat_session_id");
+      if (saved) {
+        setSessionId(saved);
+        return saved;
+      }
+      const newId = uuidv4();
+      localStorage.setItem("sendcat_session_id", newId);
+      setSessionId(newId);
       return newId;
-    });
+    };
     const [threadId, setThreadId] = useState<string | null>(
       existingThreadId || null,
     );
@@ -96,7 +132,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const effectiveThreadId = threadId ?? existingThreadId ?? null;
     const isThreadStreaming = useQuery(
       api.messages.isThreadStreaming,
-      effectiveThreadId && !isConvexAuthLoading
+      effectiveThreadId && !isConvexAuthLoading && sessionReady
         ? { threadId: effectiveThreadId as Id<"threads">, sessionId }
         : "skip",
     );
@@ -231,9 +267,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       abortControllerRef.current = null;
 
       if (effectiveThreadId) {
+        const currentSessionId = getSessionId();
         await abortLatestInThread({
           threadId: effectiveThreadId as Id<"threads">,
-          sessionId,
+          sessionId: currentSessionId,
         });
         console.log("Aborted latest message in thread");
       }
@@ -266,6 +303,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       }
 
       try {
+        const currentSessionId = getSessionId();
         const tokenResult = await (convex as any).getAuthToken?.();
         let effectiveToken =
           typeof tokenResult === "string" ? tokenResult : null;
@@ -290,9 +328,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
         if (!currentThreadId) {
           currentThreadId = await createThread({
-            sessionId,
+            sessionId: currentSessionId,
             modelId: selectedModelId,
             title: fallbackTitle.slice(0, 40),
+          });
+          trackEvent("thread_created", {
+            thread_id: currentThreadId,
+            model_id: selectedModelId,
+            has_text: hasText,
+            attachment_count: attachments.length,
           });
           setThreadId(currentThreadId);
           // Navigate to the new thread page
@@ -302,11 +346,21 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
           });
         }
 
+        trackEvent("message_send", {
+          thread_id: currentThreadId,
+          model_id: selectedModelId,
+          chars: messageContent.length,
+          has_attachments: hasAttachments,
+          attachment_count: attachments.length,
+          search_enabled: searchEnabled,
+          reasoning_effort: reasoningEffort ?? "none",
+        });
+
         await sendMessage({
           threadId: currentThreadId as Id<"threads">,
           content: messageContent,
           role: "user",
-          sessionId,
+          sessionId: currentSessionId,
           attachments: attachments.map(({ storageId, type, name, size }) => ({
             storageId: storageId as Id<"_storage">,
             type,
@@ -344,7 +398,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             content: messageContent,
             modelId: selectedModelId,
             webSearch: searchEnabled,
-            sessionId: sessionId,
+            sessionId: currentSessionId,
           }),
           signal: controller.signal,
         });
@@ -454,6 +508,32 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                         },
                       }),
                     );
+                  } else if (data.type === "usage" && currentMessageId) {
+                    const usage = data.usage || {};
+                    const metrics = data.metrics || {};
+                    trackEvent("llm_usage", {
+                      thread_id: currentThreadId,
+                      message_id: currentMessageId,
+                      model_id: metrics.modelId || selectedModelId,
+                      latency_ms: metrics.latencyMs ?? null,
+                      ttft_ms: metrics.ttftMs ?? null,
+                      finish_reason: metrics.finishReason ?? null,
+                      prompt_tokens: usage.prompt_tokens ?? null,
+                      completion_tokens: usage.completion_tokens ?? null,
+                      total_tokens: usage.total_tokens ?? null,
+                      cached_tokens: usage.cached_tokens ?? null,
+                      reasoning_tokens: usage.reasoning_tokens ?? null,
+                      cost: usage.cost ?? null,
+                    });
+                  } else if (data.type === "usage_error") {
+                    const metrics = data.metrics || {};
+                    trackEvent("llm_error", {
+                      thread_id: currentThreadId,
+                      message_id: currentMessageId,
+                      model_id: metrics.modelId || selectedModelId,
+                      latency_ms: metrics.latencyMs ?? null,
+                      error: data.error || "Unknown error",
+                    });
                   } else if (data.type === "error") {
                     toast.error(data.error);
                   }
@@ -587,6 +667,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
               {/* Textarea - No bottom padding, natural height */}
               <textarea
+                id="chat-input"
+                name="chat_message"
                 ref={textareaRef}
                 rows={1}
                 value={content}
@@ -606,7 +688,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                 <div className="flex items-center gap-1 md:gap-2">
                   <ModelPicker
                     selectedModelId={selectedModelId}
-                    onSelect={setSelectedModelId}
+                    onSelect={handleModelSelect}
                   />
 
                   {supportsReasoning && (
@@ -694,6 +776,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
                     <Paperclip size={isMobile ? 16 : 18} />
                   </button>
                   <input
+                    id="chat-attachments"
+                    name="chat_attachments"
                     type="file"
                     ref={fileInputRef}
                     className="hidden"

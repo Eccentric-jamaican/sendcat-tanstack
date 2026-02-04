@@ -25,13 +25,9 @@ export function MessageActionMenu({ type, onAction, children }: MessageActionMen
   const isMobile = useIsMobile()
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [models, setModels] = useState<AppModel[]>([])
-  const [favorites] = useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('t3-model-favorites')
-      return saved ? JSON.parse(saved) : ['google/gemini-2.0-flash-exp:free']
-    }
-    return ['google/gemini-2.0-flash-exp:free']
-  })
+  const [favorites, setFavorites] = useState<string[]>([
+    'google/gemini-2.0-flash-exp:free',
+  ])
 
   useEffect(() => {
     const loadModels = async () => {
@@ -49,6 +45,14 @@ export function MessageActionMenu({ type, onAction, children }: MessageActionMen
       }
     }
     loadModels()
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = localStorage.getItem('t3-model-favorites')
+    if (saved) {
+      setFavorites(JSON.parse(saved))
+    }
   }, [])
 
   // Group models by provider

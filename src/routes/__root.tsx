@@ -1,4 +1,5 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
+import { ClientOnly } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { ErrorPage } from "../components/layout/ErrorPage";
@@ -90,6 +91,7 @@ import { convex } from "../lib/convex";
 import { authClient } from "../lib/auth";
 import { useVisualViewport } from "../hooks/useVisualViewport";
 import { initSentry } from "../lib/sentry";
+import { initAnalytics, startSessionTracking } from "../lib/analytics";
 
 if (typeof window !== "undefined") {
   initSentry();
@@ -100,6 +102,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   useVisualViewport();
 
   useEffect(() => {
+    initAnalytics();
+    const stopSessionTracking = startSessionTracking();
     if (!("serviceWorker" in navigator)) return;
 
     const handleLoad = () => {
@@ -110,6 +114,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 
     window.addEventListener("load", handleLoad);
     return () => {
+      stopSessionTracking();
       window.removeEventListener("load", handleLoad);
     };
   }, []);
@@ -121,24 +126,25 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="antialiased">
         <div className="grain-overlay" />
-        <ConvexBetterAuthProvider
-          client={convex}
-          authClient={authClient}
+        <ClientOnly
+          fallback={<div className="min-h-screen bg-background text-foreground" />}
         >
-          {children}
-          <Toaster position="bottom-right" theme="light" />
-        </ConvexBetterAuthProvider>
-        <TanStackDevtools
-          config={{
-            position: "bottom-right",
-          }}
-          plugins={[
-            {
-              name: "Tanstack Router",
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
+          <ConvexBetterAuthProvider client={convex} authClient={authClient}>
+            {children}
+            <Toaster position="bottom-right" theme="light" />
+          </ConvexBetterAuthProvider>
+          <TanStackDevtools
+            config={{
+              position: "bottom-right",
+            }}
+            plugins={[
+              {
+                name: "Tanstack Router",
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+            ]}
+          />
+        </ClientOnly>
         <Scripts />
       </body>
     </html>

@@ -202,13 +202,9 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [activeProvider, setActiveProvider] = useState('favorites')
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('t3-model-favorites')
-      return saved ? JSON.parse(saved) : ["google/gemini-2.0-flash-exp:free"]
-    }
-    return ["google/gemini-2.0-flash-exp:free"]
-  })
+  const [favorites, setFavorites] = useState<string[]>([
+    "google/gemini-2.0-flash-exp:free",
+  ])
 
   const toggleFavorite = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -242,6 +238,24 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
     }
     load()
     return () => { mounted = false }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = localStorage.getItem('t3-model-favorites')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) {
+          setFavorites(parsed)
+        } else {
+          setFavorites([])
+        }
+      } catch (error) {
+        console.warn('[ModelPicker] Failed to parse favorites cache', error)
+        setFavorites([])
+      }
+    }
   }, [])
 
   const selectedModel = models.find(m => m.id === selectedModelId) || models[0] || FALLBACK_MODELS[0]
@@ -392,6 +406,8 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
           <div className="px-4 py-2.5 border-b border-black/[0.04] flex items-center gap-2.5" onKeyDown={handleKeyDown}>
             <Search size={15} className="text-t3-berry/30 shrink-0" />
             <input
+              id="model-search"
+              name="model_search"
               autoFocus
               type="text"
               placeholder="Search models..."

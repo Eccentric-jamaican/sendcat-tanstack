@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Globe, ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { trackEvent } from "../../lib/analytics";
 
 interface GlobalToolResultProps {
   isLoading: boolean;
@@ -14,6 +15,7 @@ export function GlobalToolResult({
   args,
 }: GlobalToolResultProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const hasTrackedResult = useRef(false);
 
   const parsedArgs = useMemo(() => {
     if (!args) return null;
@@ -36,6 +38,28 @@ export function GlobalToolResult({
     }
   }, [result]);
 
+  const countMatch = resultText.match(/found\s+(\d+)\s+items?/i);
+  const count = countMatch ? Number.parseInt(countMatch[1], 10) : null;
+
+  let summary = resultText;
+  if (/limit reached/i.test(resultText)) {
+    summary = "Global search limit reached for this turn.";
+  } else if (/^error:/i.test(resultText)) {
+    summary = resultText.replace(/^error:\s*/i, "");
+  } else if (count !== null) {
+    summary = `Found ${count} items. Showing product cards below.`;
+  }
+
+  useEffect(() => {
+    if (hasTrackedResult.current || isLoading || !resultText) return;
+    hasTrackedResult.current = true;
+    trackEvent("tool_result_render", {
+      tool_name: "search_global",
+      query,
+      total_count: count ?? null,
+    });
+  }, [count, isLoading, query, resultText]);
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 py-2 text-sm text-foreground/60">
@@ -50,18 +74,6 @@ export function GlobalToolResult({
   }
 
   if (!resultText) return null;
-
-  const countMatch = resultText.match(/found\s+(\d+)\s+items?/i);
-  const count = countMatch ? Number.parseInt(countMatch[1], 10) : null;
-
-  let summary = resultText;
-  if (/limit reached/i.test(resultText)) {
-    summary = "Global search limit reached for this turn.";
-  } else if (/^error:/i.test(resultText)) {
-    summary = resultText.replace(/^error:\s*/i, "");
-  } else if (count !== null) {
-    summary = `Found ${count} items. Showing product cards below.`;
-  }
 
   return (
     <div className="my-2 overflow-hidden rounded-lg text-sm">

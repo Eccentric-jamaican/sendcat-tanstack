@@ -99,6 +99,23 @@ Likely files to touch
 - `convex/schema.ts` (store remediation runs + status)
 - `src/routes/settings.tsx` (toggle + webhook status)
 
+## Client-only app performance optimizations (future)
+
+Goal: improve perceived performance of the client-only app with targeted prefetching and caching (no SSR).
+
+Key behaviors
+
+- Prefetch chat threads and product data after initial load (idle or hover-triggered).
+- Cache heavy responses (search results, product detail lookups) with clear TTLs.
+- Add skeletons to reduce perceived latency on slow networks.
+
+Likely files to touch
+
+- `src/lib/queryClient.ts` or `src/lib/cache.ts` (cache/prefetch helpers)
+- `src/routes/chat.$threadId.tsx` (prefetch + skeletons)
+- `src/components/product/*` (detail caches + placeholders)
+- `convex/chat.ts` / `convex/search.ts` (optional caching hints)
+
 ## Agent labels + agentic sourcing loop
 
 Goal: simplify model selection with high-level labels (e.g., "Fast" and "Agent") and add an agentic loop so sourcing can iteratively refine queries, broaden coverage, and improve result quality.

@@ -62,6 +62,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { toast } from "sonner";
+import { identifyUser, resetAnalytics, trackEvent } from "../../lib/analytics";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -423,6 +424,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     authClient.useSession();
   const { isLoading: isConvexAuthLoading } = useConvexAuth();
   const currentUserId = authSession?.user?.id ?? null;
+  const prevTrackedUserId = useRef<string | null>(null);
 
   // Track auth transitions to prevent showing stale data from previous user
   const prevUserIdRef = useRef<string | null>(undefined as any);
@@ -445,6 +447,26 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     }
   }, [currentUserId]);
 
+  useEffect(() => {
+    if (currentUserId) {
+      identifyUser(currentUserId, {
+        email: authSession?.user?.email,
+        name: authSession?.user?.name,
+      });
+      if (prevTrackedUserId.current !== currentUserId) {
+        trackEvent("sign_in_completed", { user_id: currentUserId });
+      }
+      prevTrackedUserId.current = currentUserId;
+      return;
+    }
+
+    if (prevTrackedUserId.current) {
+      trackEvent("sign_out");
+    }
+    prevTrackedUserId.current = null;
+    resetAnalytics();
+  }, [authSession?.user?.email, authSession?.user?.name, currentUserId]);
+
   const isOpen = externalOpen !== undefined ? externalOpen : internalOpen;
   const setIsOpen = (open: boolean) => {
     if (onToggle) {
@@ -457,14 +479,19 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sessionId] = useState(() => {
-    if (typeof window === "undefined") return "";
+  const [sessionId, setSessionId] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const saved = localStorage.getItem("sendcat_session_id");
-    if (saved) return saved;
+    if (saved) {
+      setSessionId(saved);
+      return;
+    }
     const newId = uuidv4();
     localStorage.setItem("sendcat_session_id", newId);
-    return newId;
-  });
+    setSessionId(newId);
+  }, []);
 
   useEffect(() => {
     if (hasSyncedMobileRef.current) return;
@@ -495,7 +522,9 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     isAuthPending || isConvexAuthLoading || isAuthTransitioning;
   const threads = useQuery(
     api.threads.list,
-    shouldSkipQuery ? "skip" : { sessionId, search: searchQuery || undefined },
+    shouldSkipQuery
+      ? "skip"
+      : { sessionId: sessionId || undefined, search: searchQuery || undefined },
   );
   const togglePinned = useMutation(api.threads.togglePinned);
   const removeThread = useMutation(api.threads.remove);
@@ -570,6 +599,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
       toast.error("Open a chat to share.");
       return;
     }
+    trackEvent("share_dialog_open", { thread_id: activeThreadId });
     setIsShareOpen(true);
   };
 
@@ -579,6 +609,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     try {
       await navigator.clipboard.writeText(url);
       toast.success("Share link copied");
+      trackEvent("share_thread_copy", { thread_id: activeThreadId, url });
     } catch (err) {
       toast.error("Failed to copy link");
     }
@@ -587,6 +618,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const handleShareTo = (target: "x" | "whatsapp" | "instagram") => {
     const url = getShareUrl();
     if (!url) return;
+    trackEvent("share_thread_share", { thread_id: activeThreadId, target });
     const shareText = "Check out this chat";
     const encodedUrl = encodeURIComponent(url);
     const encodedText = encodeURIComponent(shareText);
@@ -797,6 +829,8 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
             <div className="group relative flex items-center rounded-lg bg-black/5 px-3 focus-within:ring-1 focus-within:ring-primary/20">
               <Search className="flex-shrink-0 text-foreground/30" size={14} />
               <input
+                id="thread-search"
+                name="thread_search"
                 type="text"
                 placeholder="Search your threads..."
                 value={searchQuery}
@@ -995,6 +1029,8 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
             <>
               <div className="mt-4 flex items-center gap-2">
                 <input
+                  id="share-link"
+                  name="share_link"
                   readOnly
                   value={shareUrl}
                   className="flex-1 truncate rounded-lg border border-black/10 bg-black/[0.03] px-3 py-2 text-xs text-foreground/70"
@@ -1395,6 +1431,8 @@ const ThreadItem = ({
             )}
             {isEditing ? (
               <input
+                id={`thread-title-${thread._id}`}
+                name="thread_title"
                 autoFocus
                 className="flex-1 border-none bg-transparent p-0 text-[13px] outline-none"
                 value={editingTitle}
