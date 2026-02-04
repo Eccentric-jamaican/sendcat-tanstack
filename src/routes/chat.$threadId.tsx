@@ -1,4 +1,9 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useNavigate,
+  Link,
+  ClientOnly,
+} from "@tanstack/react-router";
 import { Sidebar } from "../components/layout/Sidebar";
 import { NotFoundPage } from "../components/layout/NotFoundPage";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -116,8 +121,17 @@ export const Route = createFileRoute("/chat/$threadId")({
     productId:
       typeof search.productId === "string" ? search.productId : undefined,
   }),
-  component: ChatPage,
+  ssr: false,
+  component: ChatRoute,
 });
+
+function ChatRoute() {
+  return (
+    <ClientOnly fallback={<div className="min-h-screen bg-background text-foreground" />}>
+      <ChatPage />
+    </ClientOnly>
+  );
+}
 
 function ChatPage() {
   const { threadId } = Route.useParams();
@@ -132,20 +146,27 @@ function ChatPage() {
   // Wait for Convex auth to be ready before querying messages
   const { isLoading: isConvexAuthLoading } = useConvexAuth();
 
-  // Get sessionId for ownership verification
-  const sessionId =
-    typeof window !== "undefined"
-      ? localStorage.getItem("sendcat_session_id") || undefined
-      : undefined;
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSessionId(localStorage.getItem("sendcat_session_id") || undefined);
+    setSessionReady(true);
+  }, []);
 
   // Skip query while Convex auth is loading to prevent "Access denied" on reload
   const messages = useQuery(
     api.messages.list,
-    isConvexAuthLoading ? "skip" : { threadId: threadId as any, sessionId },
+    isConvexAuthLoading || !sessionReady
+      ? "skip"
+      : { threadId: threadId as any, sessionId },
   );
   const thread = useQuery(
     api.threads.get,
-    isConvexAuthLoading ? "skip" : { id: threadId as any, sessionId },
+    isConvexAuthLoading || !sessionReady
+      ? "skip"
+      : { id: threadId as any, sessionId },
   );
   const createThread = useMutation(api.threads.create);
   const sendMessage = useMutation(api.messages.send);

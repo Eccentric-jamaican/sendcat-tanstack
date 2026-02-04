@@ -110,8 +110,6 @@ export const resetAnalytics = () => {
   seenProductViews.clear();
   localStorage.removeItem(DISTINCT_ID_KEY);
   localStorage.removeItem(USER_ID_KEY);
-  analyticsInitialized = false;
-  initAnalytics();
 };
 
 export const trackEvent = (

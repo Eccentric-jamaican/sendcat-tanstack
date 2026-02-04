@@ -43,31 +43,42 @@ export function MessageEditInput({
   const [content, setContent] = useState(initialContent);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Get sessionId for ownership verification
-  const sessionId =
-    typeof window !== "undefined"
-      ? localStorage.getItem("sendcat_session_id") || undefined
-      : undefined;
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
 
-  const [selectedModelId, setSelectedModelId] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("t3_selected_model");
-      if (saved) return saved;
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("sendcat_session_id");
+    if (saved) {
+      setSessionId(saved);
+      return;
     }
-    return "google/gemini-2.0-flash-exp:free";
-  });
+    const newId = uuidv4();
+    localStorage.setItem("sendcat_session_id", newId);
+    setSessionId(newId);
+  }, []);
+
+  const [selectedModelId, setSelectedModelId] = useState(
+    "google/gemini-2.0-flash-exp:free",
+  );
 
   const [searchEnabled, setSearchEnabled] = useState(false);
-  const [reasoningEffort, setReasoningEffort] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("t3_reasoning_effort");
-    }
-    return null;
-  });
+  const [reasoningEffort, setReasoningEffort] = useState<string | null>(null);
   const [models, setModels] = useState<AppModel[]>([]);
 
   useEffect(() => {
     fetchOpenRouterModels().then(setModels);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedModel = localStorage.getItem("t3_selected_model");
+    if (savedModel) {
+      setSelectedModelId(savedModel);
+    }
+    const savedReasoning = localStorage.getItem("t3_reasoning_effort");
+    if (savedReasoning !== null) {
+      setReasoningEffort(savedReasoning);
+    }
   }, []);
 
   const currentModel = models.find((m) => m.id === selectedModelId);
@@ -421,6 +432,8 @@ export function MessageEditInput({
         {/* Text Input */}
         <div className={cn(isMobile ? "px-3 pt-2 pb-1" : "px-5 pt-4 pb-2")}>
           <textarea
+            id={`message-edit-${messageId}`}
+            name="message_edit"
             ref={textareaRef}
             value={content}
             onChange={(e) => setContent(e.target.value)}
@@ -495,6 +508,8 @@ export function MessageEditInput({
 
               {/* Attachment Button */}
               <input
+                id={`message-edit-attachments-${messageId}`}
+                name="message_edit_attachments"
                 ref={fileInputRef}
                 type="file"
                 multiple
