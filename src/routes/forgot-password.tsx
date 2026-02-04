@@ -75,12 +75,16 @@ function ForgotPassword() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground/80 ml-1">
+              <label
+                htmlFor="forgot-password-email"
+                className="text-sm font-medium text-foreground/80 ml-1"
+              >
                 Email
               </label>
               <div className="group relative">
                 <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
                 <input
+                  id="forgot-password-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
