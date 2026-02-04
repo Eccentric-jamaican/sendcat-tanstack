@@ -81,6 +81,24 @@ Notes
 - Set `EPN_CAMPID`, `EPN_MKCID`, `EPN_MKRID`, `EPN_TOOLID`, `EPN_MKEVT`, and `EPN_CUSTOMID_SALT` in Convex.
 - Replace placeholder salts in dev with a real secret before production.
 
+## Sentry-driven auto-remediation (future)
+
+Goal: use Sentry error events to trigger an AI agent that triages, reproduces, and proposes fixes via PRs.
+
+Key behaviors
+
+- Sentry webhook triggers a remediation job on new high-priority issues.
+- Agent pulls stack traces, release info, and user/session context to reproduce.
+- Generates a patch + PR with a concise explanation and test plan.
+- Human review gate remains mandatory before merge.
+
+Likely files to touch
+
+- `convex/http.ts` or `src/routes/api/*` (webhook receiver)
+- `convex/agents/*` or `src/lib/agents/*` (agent runner + tools)
+- `convex/schema.ts` (store remediation runs + status)
+- `src/routes/settings.tsx` (toggle + webhook status)
+
 ## Agent labels + agentic sourcing loop
 
 Goal: simplify model selection with high-level labels (e.g., "Fast" and "Agent") and add an agentic loop so sourcing can iteratively refine queries, broaden coverage, and improve result quality.
