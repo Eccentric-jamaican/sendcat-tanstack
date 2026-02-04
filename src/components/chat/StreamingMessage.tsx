@@ -1,6 +1,5 @@
-import { useMemo, useState, useEffect } from "react";
-import { motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import { Markdown } from "./Markdown";
 import { useSmoothStreaming } from "../../hooks/useSmoothStreaming";
 import { ReasoningBlock } from "./ReasoningBlock";
