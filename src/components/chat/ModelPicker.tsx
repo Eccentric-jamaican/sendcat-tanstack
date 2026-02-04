@@ -244,7 +244,17 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
     if (typeof window === 'undefined') return
     const saved = localStorage.getItem('t3-model-favorites')
     if (saved) {
-      setFavorites(JSON.parse(saved))
+      try {
+        const parsed = JSON.parse(saved)
+        if (Array.isArray(parsed)) {
+          setFavorites(parsed)
+        } else {
+          setFavorites([])
+        }
+      } catch (error) {
+        console.warn('[ModelPicker] Failed to parse favorites cache', error)
+        setFavorites([])
+      }
     }
   }, [])
 
