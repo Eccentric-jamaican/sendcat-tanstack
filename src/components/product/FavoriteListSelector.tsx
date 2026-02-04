@@ -87,7 +87,7 @@ export function FavoriteListSelector({ product, trigger }: FavoriteListSelectorP
         {trigger}
       </PopoverTrigger>
       <PopoverContent 
-        className="w-64 p-0 overflow-hidden bg-white shadow-xl border border-gray-100 rounded-2xl" 
+        className="z-[700] w-64 p-0 overflow-hidden bg-white shadow-xl border border-gray-100 rounded-2xl" 
         align="end"
         onClick={(e) => e.stopPropagation()}
       >

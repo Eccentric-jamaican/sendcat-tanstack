@@ -116,6 +116,22 @@ Likely files to touch
 - `src/components/product/*` (detail caches + placeholders)
 - `convex/chat.ts` / `convex/search.ts` (optional caching hints)
 
+## LLM usage analytics (OpenRouter) (future)
+
+Goal: capture server-side OpenRouter usage events (model, tokens, latency, cost estimates) in PostHog.
+
+Key behaviors
+
+- Emit a server-side PostHog event after each OpenRouter call completes.
+- Include model ID, prompt/response token counts, latency, and thread/session IDs.
+- Distinguish retries, tool calls, and error outcomes.
+
+Likely files to touch
+
+- `convex/chat.ts` / `convex/chatHttp.ts` (post-call event emission)
+- `convex/lib/analytics.ts` (server-side PostHog client helper)
+- `convex/schema.ts` (optional: persist usage snapshots)
+
 ## Agent labels + agentic sourcing loop
 
 Goal: simplify model selection with high-level labels (e.g., "Fast" and "Agent") and add an agentic loop so sourcing can iteratively refine queries, broaden coverage, and improve result quality.
