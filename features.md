@@ -27,6 +27,24 @@ Likely files to touch
 Goal: When a sync is performed (currently only gmail) the user gets a subtle indicator letting them know there is a draft for them to confirm.
 in the future if the user has not responded then they get either whatsapp message reminding them to confirm or email. It would be nice for the user to confirm right then and there in the whatsapp thread or email once they see it.
 
+## Account deletion request (future)
+
+Goal: let users request deletion of their account and all associated data.
+
+Key behaviors
+
+- User-initiated request with confirmation step.
+- Server-side delete that removes Better Auth records and app data (profiles, sessions, and any user-owned records).
+- Optional grace period or immediate deletion toggle.
+
+Likely files to touch
+
+- `src/routes/settings.tsx` (UI for request/delete flow)
+- `convex/auth.ts` (Better Auth admin deletion helpers)
+- `convex/profiles.ts` (profile deletion)
+- `convex/schema.ts` (optional deletion request tracking)
+- `convex/http.ts` (optional webhook or background job entry)
+
 ## Firecrawl integration
 
 Goal: add Firecrawl as a first-class web extraction option for link previews, summaries, and search result enrichment.
