@@ -31,19 +31,16 @@ import { authClient } from "../../lib/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { useQuery, useMutation, useConvexAuth } from "convex/react";
+import { useQuery, useMutation, useConvex, useConvexAuth } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import {
   useNavigate,
   useParams,
   Link,
   useLocation,
+  useRouter,
 } from "@tanstack/react-router";
 import { useIsMobile } from "../../hooks/useIsMobile";
-import { renderToStaticMarkup } from "react-dom/server";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -63,6 +60,7 @@ import {
 } from "../ui/dialog";
 import { toast } from "sonner";
 import { identifyUser, resetAnalytics, trackEvent } from "../../lib/analytics";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -95,315 +93,6 @@ const formatExportFilename = (title: string, ext: string) => {
     .toLowerCase();
   return `${cleaned || "untitled-chat"}.${ext}`;
 };
-
-const formatMessageRole = (role: string) =>
-  role.charAt(0).toUpperCase() + role.slice(1);
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-
-const formatAttachments = (attachments: any[] | undefined) => {
-  if (!attachments || attachments.length === 0) return "";
-  return attachments
-    .map((att) => `${att.name} (${att.type}, ${Math.round(att.size / 1024)}kb)`)
-    .join("\n");
-};
-
-const formatToolCalls = (toolCalls: any[] | undefined) => {
-  if (!toolCalls || toolCalls.length === 0) return "";
-  return toolCalls
-    .map(
-      (call) =>
-        `${call.function?.name ?? "tool"}(${call.function?.arguments ?? ""})`,
-    )
-    .join("\n");
-};
-
-const CodeHeaderIcon = ({ type }: { type: "download" | "wrap" | "copy" }) => {
-  if (type === "download") {
-    return (
-      <svg
-        viewBox="0 0 24 24"
-        width="14"
-        height="14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
-      </svg>
-    );
-  }
-
-  if (type === "wrap") {
-    return (
-      <svg
-        viewBox="0 0 24 24"
-        width="14"
-        height="14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <line x1="3" y1="6" x2="17" y2="6" />
-        <line x1="3" y1="12" x2="13" y2="12" />
-        <line x1="3" y1="18" x2="9" y2="18" />
-        <path d="M17 12a4 4 0 1 1 0 8" />
-        <polyline points="15 16 17 20 19 16" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-};
-
-const renderMarkdownToHtml = (markdown: string) => {
-  const components: any = {
-    pre: ({ children }: any) => <>{children}</>,
-    code: ({ className, children, inline }: any) => {
-      if (inline) {
-        return <code className="inline-code">{children}</code>;
-      }
-
-      const match = /language-(\w+)/.exec(className || "");
-      const language = match ? match[1] : "text";
-
-      return (
-        <div className="code-card">
-          <div className="code-header">
-            <span className="code-lang">{language}</span>
-            <div className="code-actions">
-              <span className="code-action" aria-hidden>
-                <CodeHeaderIcon type="download" />
-              </span>
-              <span className="code-action" aria-hidden>
-                <CodeHeaderIcon type="wrap" />
-              </span>
-              <span className="code-action" aria-hidden>
-                <CodeHeaderIcon type="copy" />
-              </span>
-            </div>
-          </div>
-          <pre className="code-body">
-            <code className={className}>{children}</code>
-          </pre>
-        </div>
-      );
-    },
-  };
-
-  return renderToStaticMarkup(
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
-      components={components}
-    >
-      {markdown}
-    </ReactMarkdown>,
-  );
-};
-
-const normalizeTranscriptEntries = (messages: any[]) => {
-  const entries: any[] = [];
-  const assistantByToolCall = new Map<string, any>();
-
-  messages.forEach((msg) => {
-    if (msg.role === "tool") {
-      const key = msg.toolCallId;
-      const target = key ? assistantByToolCall.get(key) : null;
-      if (target) {
-        target.toolOutputs.push(msg);
-        return;
-      }
-
-      entries.push({ ...msg, toolOutputs: [], isOrphanTool: true });
-      return;
-    }
-
-    const entry = { ...msg, toolOutputs: [] as any[] };
-    entries.push(entry);
-
-    if (msg.toolCalls) {
-      msg.toolCalls.forEach((call: any) => {
-        if (call.id) assistantByToolCall.set(call.id, entry);
-      });
-    }
-  });
-
-  return entries;
-};
-
-const formatToolOutputsText = (toolOutputs: any[]) =>
-  toolOutputs
-    .map((tool) => {
-      const label = tool.name ? `Tool output (${tool.name})` : "Tool output";
-      return `${label}:\n${tool.content?.trim() || ""}`;
-    })
-    .join("\n\n");
-
-const formatTranscriptText = (entries: any[]) =>
-  entries
-    .map((msg) => {
-      const roleLabel =
-        msg.role === "tool"
-          ? `TOOL OUTPUT${msg.name ? ` (${msg.name})` : ""}`
-          : (msg.role?.toUpperCase() ?? "MESSAGE");
-      const content = msg.content?.trim() || "";
-      const attachments = formatAttachments(msg.attachments);
-      const toolCalls = formatToolCalls(msg.toolCalls);
-      const sections = [content];
-
-      if (msg.toolOutputs?.length) {
-        sections.push(formatToolOutputsText(msg.toolOutputs));
-      }
-
-      if (attachments) {
-        sections.push(`Attachments:\n${attachments}`);
-      }
-
-      if (toolCalls) {
-        sections.push(`Tool calls:\n${toolCalls}`);
-      }
-
-      return `${roleLabel}\n${sections.join("\n\n")}`.trim();
-    })
-    .join("\n\n---\n\n");
-
-const formatTranscriptMarkdown = (entries: any[]) =>
-  entries
-    .map((msg) => {
-      const role =
-        msg.role === "tool"
-          ? `Tool Output${msg.name ? ` (${msg.name})` : ""}`
-          : formatMessageRole(msg.role ?? "message");
-      const content = msg.content?.trim() || "";
-      const attachments = formatAttachments(msg.attachments);
-      const toolCalls = formatToolCalls(msg.toolCalls);
-      const sections = [] as string[];
-
-      if (msg.role === "tool") {
-        sections.push(`\`\`\`\n${content}\n\`\`\``);
-      } else {
-        sections.push(content || "_No content_");
-      }
-
-      if (msg.toolOutputs?.length) {
-        const outputs = msg.toolOutputs
-          .map((tool: any) => {
-            const label = tool.name
-              ? `Tool output (${tool.name})`
-              : "Tool output";
-            return `> ${label}\n>\n> \`\`\`\n> ${tool.content?.trim() || ""}\n> \`\`\``;
-          })
-          .join("\n\n");
-        sections.push(outputs);
-      }
-
-      if (attachments) {
-        sections.push(
-          `**Attachments**\n\n${attachments
-            .split("\n")
-            .map((line) => `- ${line}`)
-            .join("\n")}`,
-        );
-      }
-
-      if (toolCalls) {
-        sections.push(
-          `**Tool calls**\n\n${toolCalls
-            .split("\n")
-            .map((line) => `- ${line}`)
-            .join("\n")}`,
-        );
-      }
-
-      return `### ${role}\n\n${sections.join("\n\n")}`;
-    })
-    .join("\n\n---\n\n");
-
-const formatTranscriptHtml = (entries: any[]) =>
-  entries
-    .map((msg) => {
-      const role =
-        msg.role === "tool"
-          ? `Tool Output${msg.name ? ` (${msg.name})` : ""}`
-          : formatMessageRole(msg.role ?? "message");
-      const attachments = formatAttachments(msg.attachments);
-      const toolCalls = formatToolCalls(msg.toolCalls);
-      const bodyHtml =
-        msg.role === "tool"
-          ? `<pre class="tool-output"><code>${escapeHtml(msg.content?.trim() || "")}</code></pre>`
-          : renderMarkdownToHtml(msg.content?.trim() || "");
-
-      const toolOutputsHtml = msg.toolOutputs?.length
-        ? `<div class="tool-outputs">
-          ${msg.toolOutputs
-            .map((tool: any) => {
-              const label = tool.name
-                ? `Tool output (${tool.name})`
-                : "Tool output";
-              return `
-              <div class="tool-output-inline">
-                <div class="tool-output-label">${escapeHtml(label)}</div>
-                <pre class="tool-output"><code>${escapeHtml(tool.content?.trim() || "")}</code></pre>
-              </div>
-            `;
-            })
-            .join("")}
-        </div>`
-        : "";
-
-      const attachmentsHtml = attachments
-        ? `<div class="meta"><div class="meta-title">Attachments</div><ul>${attachments
-            .split("\n")
-            .map((line) => `<li>${escapeHtml(line)}</li>`)
-            .join("")}</ul></div>`
-        : "";
-
-      const toolCallsHtml = toolCalls
-        ? `<div class="meta"><div class="meta-title">Tool calls</div><ul>${toolCalls
-            .split("\n")
-            .map((line) => `<li>${escapeHtml(line)}</li>`)
-            .join("")}</ul></div>`
-        : "";
-
-      return `
-      <section class="message">
-        <h3>${escapeHtml(role)}</h3>
-        <div class="message-body">${bodyHtml || "<p><em>No content</em></p>"}</div>
-        ${toolOutputsHtml}
-        ${attachmentsHtml}
-        ${toolCallsHtml}
-      </section>
-    `;
-    })
-    .join("\n");
-
 interface SidebarProps {
   isOpen?: boolean;
   onToggle?: (open: boolean) => void;
@@ -411,7 +100,9 @@ interface SidebarProps {
 
 export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const navigate = useNavigate();
+  const router = useRouter();
   const location = useLocation();
+  const convex = useConvex();
   const { threadId: activeThreadId } = useParams({ strict: false }) as any;
   const isMobile = useIsMobile();
   const isNestedExplore =
@@ -479,6 +170,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 200);
   const [sessionId, setSessionId] = useState("");
 
   useEffect(() => {
@@ -520,11 +212,15 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   // Skip query during auth state transitions to prevent showing wrong user's threads
   const shouldSkipQuery =
     isAuthPending || isConvexAuthLoading || isAuthTransitioning;
+  const shouldSkipThreadsQuery = shouldSkipQuery || !sessionId;
   const threads = useQuery(
     api.threads.list,
-    shouldSkipQuery
+    shouldSkipThreadsQuery
       ? "skip"
-      : { sessionId: sessionId || undefined, search: searchQuery || undefined },
+      : {
+          sessionId,
+          search: debouncedSearchQuery || undefined,
+        },
   );
   const togglePinned = useMutation(api.threads.togglePinned);
   const removeThread = useMutation(api.threads.remove);
@@ -536,6 +232,8 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const shareRequestRef = useRef(false);
+  const prefetchedThreadsRef = useRef(new Set<string>());
+  const prefetchedThreadRoutesRef = useRef(new Set<string>());
 
   useEffect(() => {
     setShareToken(null);
@@ -650,6 +348,58 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const handleCloseSidebar = () => {
     if (isMobile) setIsOpen(false);
   };
+
+  const prefetchThread = (threadId: string, opts?: { preloadRoute?: boolean }) => {
+    if (!threadId) return;
+
+    // Route chunk preload does not depend on sessionId, so do it even before
+    // Convex auth/session plumbing is ready.
+    if ((opts?.preloadRoute ?? true) && !prefetchedThreadRoutesRef.current.has(threadId)) {
+      prefetchedThreadRoutesRef.current.add(threadId);
+      void router
+        .preloadRoute({ to: "/chat/$threadId", params: { threadId } as any })
+        .catch(() => {});
+    }
+
+    if (!sessionId) return;
+    if (shouldSkipQuery) return;
+    if (prefetchedThreadsRef.current.has(threadId)) return;
+    prefetchedThreadsRef.current.add(threadId);
+
+    // Prime the Convex query caches for quick navigation. Failures should be silent.
+    void convex.query(api.threads.get, { id: threadId as any, sessionId }).catch(() => {});
+    void convex.query(api.messages.list, { threadId: threadId as any, sessionId }).catch(() => {});
+  };
+
+  // Idle prefetch: warm the most likely next click (first visible thread).
+  useEffect(() => {
+    if (!threads || threads.length === 0) return;
+    if (!sessionId || shouldSkipQuery) return;
+
+    const target = threads[0]?._id as string | undefined;
+    if (!target) return;
+
+    const schedule = (cb: () => void) => {
+      const w = window as any;
+      if (typeof w.requestIdleCallback === "function") {
+        return w.requestIdleCallback(cb, { timeout: 800 });
+      }
+      return window.setTimeout(cb, 250);
+    };
+
+    const cancel = (id: any) => {
+      const w = window as any;
+      if (typeof w.cancelIdleCallback === "function") {
+        w.cancelIdleCallback(id);
+        return;
+      }
+      clearTimeout(id);
+    };
+
+    const id = schedule(() => prefetchThread(target, { preloadRoute: false }));
+    return () => cancel(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threads, sessionId, shouldSkipQuery]);
 
   const handleRename = async (id: any) => {
     if (!editingTitle.trim()) {
@@ -852,6 +602,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
                     <ThreadItem
                       key={thread._id}
                       thread={thread}
+                      onPrefetch={prefetchThread}
                       navigate={navigate}
                       activeThreadId={activeThreadId}
                       editingId={editingId}
@@ -874,6 +625,8 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
               <div className="animate-pulse space-y-3 px-6 py-4">
                 <div className="h-3 w-3/4 rounded bg-black/5" />
                 <div className="h-3 w-1/2 rounded bg-black/5" />
+                <div className="h-3 w-2/3 rounded bg-black/5" />
+                <div className="h-3 w-1/3 rounded bg-black/5" />
               </div>
             ) : (
               threads
@@ -882,6 +635,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
                   <ThreadItem
                     key={thread._id}
                     thread={thread}
+                    onPrefetch={prefetchThread}
                     navigate={navigate}
                     activeThreadId={activeThreadId}
                     editingId={editingId}
@@ -1107,6 +861,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
 
 const ThreadItem = ({
   thread,
+  onPrefetch,
   navigate,
   activeThreadId,
   editingId,
@@ -1153,49 +908,54 @@ const ThreadItem = ({
     window.open(threadUrl, "_blank", "noopener,noreferrer");
   };
 
-  const handleExport = (format: "markdown" | "json" | "text" | "html") => {
+  const handleExport = async (format: "markdown" | "json" | "text" | "html") => {
     if (!threadMessages) return;
-    const orderedMessages = [...threadMessages].sort(
-      (a, b) => (a._creationTime ?? 0) - (b._creationTime ?? 0),
-    );
-    const transcriptEntries = normalizeTranscriptEntries(orderedMessages);
-    const exportedAt = new Date().toISOString();
-    const base = {
-      id: thread._id,
-      title: threadTitle,
-      url: threadUrl,
-      exportedAt,
-      messages: orderedMessages.map((msg) => ({
-        id: msg._id,
-        role: msg.role,
-        content: msg.content,
-        status: msg.status,
-        name: msg.name,
-        modelId: msg.modelId,
-        toolCallId: msg.toolCallId,
-        toolCalls: msg.toolCalls,
-        attachments: msg.attachments,
-        createdAt: msg._creationTime,
-      })),
-    };
-
-    if (format === "json") {
-      downloadTextFile(
-        formatExportFilename(threadTitle, "json"),
-        JSON.stringify(base, null, 2),
-        "application/json",
+    try {
+      const orderedMessages = [...threadMessages].sort(
+        (a, b) => (a._creationTime ?? 0) - (b._creationTime ?? 0),
       );
-      return;
-    }
+      const exportedAt = new Date().toISOString();
+      const base = {
+        id: thread._id,
+        title: threadTitle,
+        url: threadUrl,
+        exportedAt,
+        messages: orderedMessages.map((msg) => ({
+          id: msg._id,
+          role: msg.role,
+          content: msg.content,
+          status: msg.status,
+          name: msg.name,
+          modelId: msg.modelId,
+          toolCallId: msg.toolCallId,
+          toolCalls: msg.toolCalls,
+          attachments: msg.attachments,
+          createdAt: msg._creationTime,
+        })),
+      };
 
-    if (format === "html") {
-      const transcript = formatTranscriptHtml(transcriptEntries);
+      if (format === "json") {
+        downloadTextFile(
+          formatExportFilename(threadTitle, "json"),
+          JSON.stringify(base, null, 2),
+          "application/json",
+        );
+        return;
+      }
+
+      const exportBase = await import("./sidebarExportBase");
+      const transcriptEntries =
+        exportBase.normalizeTranscriptEntries(orderedMessages);
+
+      if (format === "html") {
+        const exportHtml = await import("./sidebarExportHtml");
+        const transcript = exportHtml.formatTranscriptHtml(transcriptEntries);
       const html = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(threadTitle)}</title>
+    <title>${exportBase.escapeHtml(threadTitle)}</title>
     <style>
       :root {
         color-scheme: light;
@@ -1350,39 +1110,43 @@ const ThreadItem = ({
   </head>
   <body>
     <section class="header">
-      <h1>${escapeHtml(threadTitle)}</h1>
+      <h1>${exportBase.escapeHtml(threadTitle)}</h1>
       <div><a href="${threadUrl}">${threadUrl}</a></div>
       <div class="meta-line">Exported: ${exportedAt}</div>
     </section>
     ${transcript}
   </body>
 </html>`;
-      downloadTextFile(
-        formatExportFilename(threadTitle, "html"),
-        html,
-        "text/html",
-      );
-      return;
-    }
+        downloadTextFile(
+          formatExportFilename(threadTitle, "html"),
+          html,
+          "text/html",
+        );
+        return;
+      }
 
-    if (format === "markdown") {
-      const transcript = formatTranscriptMarkdown(transcriptEntries);
-      const content = `# ${threadTitle}\n\n${threadUrl}\n\nExported: ${exportedAt}\n\n---\n\n${transcript}`;
+      if (format === "markdown") {
+        const transcript = exportBase.formatTranscriptMarkdown(transcriptEntries);
+        const content = `# ${threadTitle}\n\n${threadUrl}\n\nExported: ${exportedAt}\n\n---\n\n${transcript}`;
+        downloadTextFile(
+          formatExportFilename(threadTitle, "md"),
+          content,
+          "text/markdown",
+        );
+        return;
+      }
+
+      const transcript = exportBase.formatTranscriptText(transcriptEntries);
+      const content = `${threadTitle}\n${threadUrl}\nExported: ${exportedAt}\n\n${transcript}`;
       downloadTextFile(
-        formatExportFilename(threadTitle, "md"),
+        formatExportFilename(threadTitle, "txt"),
         content,
-        "text/markdown",
+        "text/plain",
       );
-      return;
+    } catch (err) {
+      if (import.meta.env.DEV) console.error("[Sidebar] export failed", err);
+      toast.error("Export failed. Please try again.");
     }
-
-    const transcript = formatTranscriptText(transcriptEntries);
-    const content = `${threadTitle}\n${threadUrl}\nExported: ${exportedAt}\n\n${transcript}`;
-    downloadTextFile(
-      formatExportFilename(threadTitle, "txt"),
-      content,
-      "text/plain",
-    );
   };
 
   return (
@@ -1400,6 +1164,8 @@ const ThreadItem = ({
                 params: { threadId: thread._id },
               })
             }
+            onMouseEnter={() => onPrefetch?.(thread._id)}
+            onFocus={() => onPrefetch?.(thread._id)}
             onContextMenu={handleContextMenu}
             className={cn(
               "group my-0.5 flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 pr-[72px] text-left text-[13px] font-medium transition-all",

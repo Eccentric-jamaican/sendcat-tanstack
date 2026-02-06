@@ -172,6 +172,18 @@ function ChatPage() {
   const sendMessage = useMutation(api.messages.send);
   const streamAnswer = useAction(api.chat.streamAnswer);
 
+  const toolOutputsByCallId = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (!messages) return map;
+    for (const msg of messages as any[]) {
+      if (msg?.role !== "tool") continue;
+      if (!msg.toolCallId) continue;
+      if (typeof msg.content !== "string") continue;
+      map[msg.toolCallId] = msg.content;
+    }
+    return map;
+  }, [messages]);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
   // Products drawer state
@@ -364,6 +376,28 @@ function ChatPage() {
 
   const isEmpty = messages !== undefined && messages.length === 0;
 
+  const filteredMessages = useMemo(() => {
+    return (
+      messages?.filter((msg: any) => {
+        if (msg.role === "tool") return false;
+        if (
+          msg.role === "assistant" &&
+          msg.status === "aborted" &&
+          !msg.content?.trim() &&
+          !msg.toolCalls?.length &&
+          !msg.products?.length
+        ) {
+          return false;
+        }
+        return true;
+      }) ?? []
+    );
+  }, [messages]);
+
+  const groupedMessages = useMemo(() => {
+    return groupConsecutiveAssistantMessages(filteredMessages);
+  }, [filteredMessages]);
+
   return (
     <div className="relative flex h-dvh min-h-screen max-w-full overflow-hidden bg-background text-foreground">
       <div className="edge-glow-top" />
@@ -406,27 +440,7 @@ function ChatPage() {
                 </div>
               )}
               <TooltipProvider delayDuration={150}>
-                {(() => {
-                  // Filter messages first
-                  const filteredMessages =
-                    messages?.filter((msg: any) => {
-                      if (msg.role === "tool") return false;
-                      if (
-                        msg.role === "assistant" &&
-                        msg.status === "aborted" &&
-                        !msg.content?.trim() &&
-                        !msg.toolCalls?.length &&
-                        !msg.products?.length
-                      )
-                        return false;
-                      return true;
-                    }) || [];
-
-                  // Group consecutive assistant messages
-                  const groups =
-                    groupConsecutiveAssistantMessages(filteredMessages);
-
-                  return groups.map((group, groupIndex) => {
+                {groupedMessages.map((group, groupIndex) => {
                     if (group.type === "user") {
                       // Render user message as before
                       const msg = group.messages[0];
@@ -603,18 +617,13 @@ function ChatPage() {
                                   content={msg.content}
                                   reasoningContent={msg.reasoningContent}
                                   toolCalls={msg.toolCalls}
-                                  toolResults={msg.toolCalls?.reduce(
-                                    (acc: any, tc: any) => {
-                                      const toolMsg = messages?.find(
-                                        (m: any) =>
-                                          m.role === "tool" &&
-                                          m.toolCallId === tc.id,
-                                      );
-                                      if (toolMsg) acc[tc.id] = toolMsg.content;
-                                      return acc;
-                                    },
-                                    {},
-                                  )}
+                                  toolResults={msg.toolCalls?.reduce((acc: any, tc: any) => {
+                                    const id = tc?.id;
+                                    if (!id) return acc;
+                                    const content = toolOutputsByCallId[id];
+                                    if (typeof content === "string") acc[id] = content;
+                                    return acc;
+                                  }, {})}
                                   products={msg.products}
                                   isStreaming={msg.status === "streaming"}
                                   onOpenExpanded={handleOpenExpanded}
@@ -711,13 +720,21 @@ function ChatPage() {
                         </motion.div>
                       );
                     }
-                  });
-                })()}
+                  })}
                 {/* Scroll anchor to prevent jumps during streaming */}
                 <div ref={messagesEndRef} className="message-anchor" />
                 {messages === undefined && (
-                  <div className="flex h-full items-center justify-center opacity-20">
-                    <MessageSquare className="animate-pulse" size={48} />
+                  <div className="flex h-full flex-col items-center justify-center gap-4 px-6 py-10">
+                    <div className="h-3 w-40 animate-pulse rounded bg-black/10" />
+                    <div className="w-full max-w-xl space-y-3">
+                      <div className="ml-auto h-16 w-3/5 animate-pulse rounded-2xl bg-black/5" />
+                      <div className="h-20 w-4/5 animate-pulse rounded-2xl bg-black/5" />
+                      <div className="ml-auto h-10 w-2/5 animate-pulse rounded-2xl bg-black/5" />
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-foreground/40">
+                      <MessageSquare className="animate-pulse" size={16} />
+                      <span>Loading conversation...</span>
+                    </div>
                   </div>
                 )}
               </TooltipProvider>

@@ -32,7 +32,58 @@ export interface AppModel {
   isThinking?: boolean
 }
 
+const MODELS_CACHE_KEY = 'sendcat-models-cache'
+const MODELS_CACHE_TIME_KEY = 'sendcat-models-cache-time'
+const LEGACY_MODELS_CACHE_KEY = 't3-models-cache'
+const LEGACY_MODELS_CACHE_TIME_KEY = 't3-models-cache-time'
+const MODELS_CACHE_TTL_MS = 24 * 60 * 60 * 1000
+
+let inflightModelsPromise: Promise<AppModel[]> | null = null
+
 export async function fetchOpenRouterModels(): Promise<AppModel[]> {
+  const isBrowser = typeof window !== 'undefined'
+
+  if (isBrowser) {
+    try {
+      const readCache = (
+        modelsKey: string,
+        timeKey: string,
+      ): { models: AppModel[]; cacheTime: string } | null => {
+        const cached = localStorage.getItem(modelsKey)
+        const cacheTime = localStorage.getItem(timeKey)
+        if (!cached || !cacheTime) return null
+
+        const age = Date.now() - Number(cacheTime)
+        if (!Number.isFinite(age) || age < 0 || age >= MODELS_CACHE_TTL_MS) return null
+
+        const parsed = JSON.parse(cached)
+        return Array.isArray(parsed) ? { models: parsed, cacheTime } : null
+      }
+
+      const current = readCache(MODELS_CACHE_KEY, MODELS_CACHE_TIME_KEY)
+      if (current) return current.models
+
+      const legacy = readCache(LEGACY_MODELS_CACHE_KEY, LEGACY_MODELS_CACHE_TIME_KEY)
+      if (legacy) {
+        // Migration: reuse legacy cache and persist it under the new sendcat keys.
+        try {
+          localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(legacy.models))
+          localStorage.setItem(MODELS_CACHE_TIME_KEY, legacy.cacheTime)
+          localStorage.removeItem(LEGACY_MODELS_CACHE_KEY)
+          localStorage.removeItem(LEGACY_MODELS_CACHE_TIME_KEY)
+        } catch {
+          // Ignore localStorage failures.
+        }
+        return legacy.models
+      }
+    } catch {
+      // Cache should never break model loading.
+    }
+  }
+
+  if (inflightModelsPromise) return inflightModelsPromise
+
+  inflightModelsPromise = (async () => {
   try {
     const response = await fetch('https://openrouter.ai/api/v1/models')
     const data = await response.json()
@@ -40,7 +91,7 @@ export async function fetchOpenRouterModels(): Promise<AppModel[]> {
     // safe guard if API fails or shape changes
     if (!data?.data) return []
 
-    return data.data.map((m: any) => {
+    const models = data.data.map((m: any) => {
       // Determine provider from ID prefix
       let provider = m.id.split('/')[0]
       if (provider === 'meta-llama') provider = 'meta'
@@ -135,8 +186,26 @@ export async function fetchOpenRouterModels(): Promise<AppModel[]> {
         isNew: false // Can't easily determine "new" without a date reference
       }
     })
+
+    if (isBrowser && models.length > 0) {
+      try {
+        localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(models))
+        localStorage.setItem(MODELS_CACHE_TIME_KEY, Date.now().toString())
+        localStorage.removeItem(LEGACY_MODELS_CACHE_KEY)
+        localStorage.removeItem(LEGACY_MODELS_CACHE_TIME_KEY)
+      } catch {
+        // localStorage can fail (quota, disabled, etc). Safe to ignore.
+      }
+    }
+
+    return models
   } catch (error) {
     console.error("Failed to fetch OpenRouter models", error)
     return []
+  } finally {
+    inflightModelsPromise = null
   }
+  })()
+
+  return inflightModelsPromise
 }

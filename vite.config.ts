@@ -31,7 +31,13 @@ const config = defineConfig(({ mode }) => {
     },
   },
     plugins: [
-    devtools(),
+    devtools({
+      // Avoid hard-failing dev server startup if the default port is taken.
+      // Override with `TANSTACK_DEVTOOLS_EVENT_BUS_PORT` if needed.
+      eventBusConfig: {
+        port: Number(env.TANSTACK_DEVTOOLS_EVENT_BUS_PORT || "42070"),
+      },
+    }),
     nitro(),
     tailwindcss(),
     // this is the plugin that enables path aliases

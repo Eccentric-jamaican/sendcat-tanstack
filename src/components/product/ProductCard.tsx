@@ -2,16 +2,17 @@ import { useNavigate } from "@tanstack/react-router";
 import { type Product } from "../../data/mockProducts";
 import { motion } from "framer-motion";
 import { Heart } from "lucide-react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { cn } from "../../lib/utils";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   getProductImageFallback,
   getProductImageUrl,
 } from "./productImage";
 import { FavoriteListSelector } from "./FavoriteListSelector";
 import { trackProductView } from "../../lib/analytics";
+import { getOrSetProductDetails } from "../../lib/productDetailsCache";
 
 interface ProductCardProps {
   product: Product;
@@ -19,6 +20,8 @@ interface ProductCardProps {
 
 export function ProductCard({ product }: ProductCardProps) {
   const navigate = useNavigate();
+  const getItemDetails = useAction(api.chat.getItemDetails);
+  const prefetchTimeoutRef = useRef<number | null>(null);
   const sourceLabel =
     product.source === "global"
       ? "Global sites"
@@ -55,6 +58,43 @@ export function ProductCard({ product }: ProductCardProps) {
     navigate({ to: ".", search: { productId: product.id } });
   };
 
+  const cancelPrefetch = () => {
+    if (prefetchTimeoutRef.current === null) return;
+    window.clearTimeout(prefetchTimeoutRef.current);
+    prefetchTimeoutRef.current = null;
+  };
+
+  const schedulePrefetch = () => {
+    // Only prefetch for hover-capable devices to avoid wasted calls on mobile scroll.
+    if (typeof window === "undefined") return;
+    if (window.matchMedia && !window.matchMedia("(hover: hover)").matches) return;
+    if (product.source !== "ebay") return;
+    if (!product.id) return;
+
+    cancelPrefetch();
+    prefetchTimeoutRef.current = window.setTimeout(() => {
+      void getOrSetProductDetails(product.id, async () => {
+        const data = await getItemDetails({ itemId: product.id });
+        return {
+          id: data.itemId,
+          title: data.title,
+          priceRange: `${data.price?.currency} ${data.price?.value}`,
+          image:
+            data.image?.imageUrl || data.additionalImages?.[0]?.imageUrl || "",
+          url: data.itemWebUrl,
+          source: "ebay",
+          sellerName: data.seller?.username,
+          sellerFeedback: data.seller?.feedbackPercentage
+            ? `${data.seller.feedbackPercentage}%`
+            : undefined,
+          condition: data.condition,
+          rating: data.product?.averageRating,
+          reviews: data.product?.reviewCount,
+        } satisfies Product;
+      }).catch(() => {});
+    }, 150);
+  };
+
   useEffect(() => {
     trackProductView(product.id, {
       source: product.source,
@@ -63,11 +103,15 @@ export function ProductCard({ product }: ProductCardProps) {
     });
   }, [priceLabel, product.id, product.merchantDomain, product.source]);
 
+  useEffect(() => cancelPrefetch, []);
+
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={handleClick}
+      onPointerEnter={schedulePrefetch}
+      onPointerLeave={cancelPrefetch}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();

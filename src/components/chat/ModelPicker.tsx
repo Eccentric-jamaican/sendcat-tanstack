@@ -220,20 +220,9 @@ export const ModelPicker = ({ selectedModelId, onSelect }: ModelPickerProps) => 
   useEffect(() => {
     let mounted = true
     const load = async () => {
-      // Try local cache first
-      const cached = localStorage.getItem('t3-models-cache')
-      const cacheTime = localStorage.getItem('t3-models-cache-time')
-      // Cache valid for 24 hours
-      if (cached && cacheTime && Date.now() - parseInt(cacheTime) < 86400000) {
-        setModels(JSON.parse(cached))
-        return
-      }
-
       const fetched = await fetchOpenRouterModels()
       if (mounted && fetched.length > 0) {
         setModels(fetched)
-        localStorage.setItem('t3-models-cache', JSON.stringify(fetched))
-        localStorage.setItem('t3-models-cache-time', Date.now().toString())
       }
     }
     load()
