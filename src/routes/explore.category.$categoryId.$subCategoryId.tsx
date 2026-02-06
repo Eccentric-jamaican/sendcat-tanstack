@@ -3,9 +3,14 @@ import { type ShopItem } from "../data/explore";
 import { Search, ChevronLeft, Star } from "lucide-react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { getGradientForCategory } from "../data/exploreTaxonomy";
+import {
+  getExploreItemsCacheKey,
+  getOrSetExploreItemsCached,
+  peekExploreItemsCached,
+} from "../lib/exploreSectionsCache";
 
 export const Route = createFileRoute(
   "/explore/category/$categoryId/$subCategoryId",
@@ -26,8 +31,11 @@ function SubcategoryPage() {
   const subcategory = subcategories?.find(
     (entry) => entry.categoryId === subCategoryId,
   );
-  const [items, setItems] = useState<ShopItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const itemsKey = getExploreItemsCacheKey({ categoryId: subCategoryId });
+  const initialItems = peekExploreItemsCached(itemsKey);
+  const hadInitialItemsRef = useRef(initialItems != null);
+  const [items, setItems] = useState<ShopItem[]>(() => initialItems ?? []);
+  const [isLoading, setIsLoading] = useState(() => !initialItems);
   const bannerGradient = getGradientForCategory(
     subcategory?.categoryName ?? "Category",
   );
@@ -36,11 +44,14 @@ function SubcategoryPage() {
     if (!subcategory) return;
     const fetchData = async () => {
       try {
-        setIsLoading(true);
-        setItems([]);
-        const data = await getExploreItems({
-          categoryId: subcategory.categoryId,
-          categoryName: subcategory.categoryName,
+        if (!hadInitialItemsRef.current) setIsLoading(true);
+        const data = await getOrSetExploreItemsCached({
+          key: itemsKey,
+          fetcher: () =>
+            getExploreItems({
+              categoryId: subcategory.categoryId,
+              categoryName: subcategory.categoryName,
+            }),
         });
         setItems(data);
       } catch (e) {
@@ -50,7 +61,7 @@ function SubcategoryPage() {
       }
     };
     fetchData();
-  }, [subcategory, getExploreItems]);
+  }, [subcategory, getExploreItems, itemsKey]);
 
   if (subcategories !== undefined && !subcategory) {
     return (

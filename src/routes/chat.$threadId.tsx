@@ -23,7 +23,7 @@ import { toast } from "sonner";
 import { LandingHero } from "../components/chat/LandingHero";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Markdown } from "../components/chat/Markdown";
 import {
   Tooltip,
@@ -41,6 +41,7 @@ import { SelectionActionBar } from "../components/product/SelectionActionBar";
 import { v4 as uuidv4 } from "uuid";
 import { type Product } from "../data/mockProducts";
 import { trackEvent } from "../lib/analytics";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -172,6 +173,18 @@ function ChatPage() {
   const sendMessage = useMutation(api.messages.send);
   const streamAnswer = useAction(api.chat.streamAnswer);
 
+  const toolOutputsByCallId = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (!messages) return map;
+    for (const msg of messages as any[]) {
+      if (msg?.role !== "tool") continue;
+      if (!msg.toolCallId) continue;
+      if (typeof msg.content !== "string") continue;
+      map[msg.toolCallId] = msg.content;
+    }
+    return map;
+  }, [messages]);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
   // Products drawer state
@@ -214,19 +227,8 @@ function ChatPage() {
   /* handleOpenExpandedView was unused and removed */
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageScrollRef = useRef<HTMLDivElement>(null);
   const prevMessageCount = useRef(0);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  // Only scroll when a new message is added, not during streaming content updates
-  useEffect(() => {
-    if (messages && messages.length > prevMessageCount.current) {
-      scrollToBottom();
-      prevMessageCount.current = messages.length;
-    }
-  }, [messages?.length]);
 
   const handleCopy = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -364,6 +366,362 @@ function ChatPage() {
 
   const isEmpty = messages !== undefined && messages.length === 0;
 
+  const filteredMessages = useMemo(() => {
+    return (
+      messages?.filter((msg: any) => {
+        if (msg.role === "tool") return false;
+        if (
+          msg.role === "assistant" &&
+          msg.status === "aborted" &&
+          !msg.content?.trim() &&
+          !msg.toolCalls?.length &&
+          !msg.products?.length
+        ) {
+          return false;
+        }
+        return true;
+      }) ?? []
+    );
+  }, [messages]);
+
+  const groupedMessages = useMemo(() => {
+    return groupConsecutiveAssistantMessages(filteredMessages);
+  }, [filteredMessages]);
+
+  const forceVirtualizeMessages =
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("virt") === "1";
+
+  const shouldVirtualizeMessages =
+    forceVirtualizeMessages || groupedMessages.length > 80;
+
+  type VirtualBlock =
+    | { type: "parent-link"; parentThreadId: string }
+    | { type: "group"; group: MessageGroup; groupIndex: number }
+    | { type: "anchor" };
+
+  const virtualBlocks: VirtualBlock[] = useMemo(() => {
+    const blocks: VirtualBlock[] = [];
+    if (thread?.parentThreadId) {
+      blocks.push({ type: "parent-link", parentThreadId: thread.parentThreadId });
+    }
+    groupedMessages.forEach((group, groupIndex) => {
+      blocks.push({ type: "group", group, groupIndex });
+    });
+    // Keep a stable "bottom" target for scroll-to-bottom behavior.
+    blocks.push({ type: "anchor" });
+    return blocks;
+  }, [thread?.parentThreadId, groupedMessages]);
+
+  const messageVirtualizer = useVirtualizer({
+    count: shouldVirtualizeMessages ? virtualBlocks.length : 0,
+    getScrollElement: () => messageScrollRef.current,
+    estimateSize: (index) => {
+      const block = virtualBlocks[index];
+      if (!block) return 220;
+      if (block.type === "anchor") return 1;
+      if (block.type === "parent-link") return 56;
+      return block.group?.type === "user" ? 120 : 260;
+    },
+    overscan: 8,
+  });
+
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
+      if (shouldVirtualizeMessages) {
+        const lastIndex = virtualBlocks.length - 1;
+        messageVirtualizer.scrollToIndex(lastIndex, {
+          align: "end",
+          // TanStack Virtual warns that smooth scrolling is not fully supported with dynamic measurement.
+          // "auto" is reliable and avoids noisy console warnings in long threads.
+          behavior: "auto",
+        });
+        return;
+      }
+
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    },
+    [messageVirtualizer, shouldVirtualizeMessages, virtualBlocks.length],
+  );
+
+  // Only scroll when a new message is added, not during streaming content updates.
+  useEffect(() => {
+    if (messages && messages.length > prevMessageCount.current) {
+      scrollToBottom("smooth");
+      prevMessageCount.current = messages.length;
+    }
+  }, [messages?.length, scrollToBottom]);
+
+  const renderParentThreadLink = (parentThreadId: string) => (
+    <div className="mb-8 flex justify-center">
+      <Link
+        to="/chat/$threadId"
+        params={{ threadId: parentThreadId }}
+        className="group flex items-center gap-2 rounded-full border border-black/5 bg-background/50 px-4 py-1.5 text-[12px] font-bold text-foreground/50 shadow-sm backdrop-blur-sm transition-all hover:bg-black/5 hover:text-foreground"
+      >
+        <GitBranch size={14} className="text-primary/60" />
+        <span>Go to parent conversation</span>
+      </Link>
+    </div>
+  );
+
+  const renderMessageGroup = (
+    group: any,
+    groupIndex: number,
+    disableInitialAnimation: boolean,
+  ) => {
+    if (group.type === "user") {
+      // Render user message as before
+      const msg = group.messages[0];
+      return (
+        <motion.div
+          key={msg._id}
+          initial={
+            disableInitialAnimation ? false : { opacity: 0, y: 10 }
+          }
+          animate={{ opacity: 1, y: 0 }}
+          className="group mb-6 flex w-full flex-col items-end"
+          style={{ contain: "layout style" }}
+        >
+          <div className="relative flex w-full flex-col items-end">
+            <AnimatePresence mode="wait">
+              {editingId === msg._id ? (
+                <motion.div
+                  key="edit-input"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={{ duration: 0.2 }}
+                  layout="position"
+                  className="flex w-full justify-end"
+                >
+                  <MessageEditInput
+                    messageId={msg._id}
+                    threadId={threadId}
+                    initialContent={editingContent}
+                    initialAttachments={msg.attachments}
+                    onCancel={() => setEditingId(null)}
+                    onSubmit={() => setEditingId(null)}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="message-content"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={{ duration: 0.2 }}
+                  layout="position"
+                  className="max-w-[85%] rounded-2xl bg-zinc-100 px-4 py-2 text-left text-[14px] leading-relaxed break-words whitespace-pre-wrap text-zinc-900 shadow-sm transition-all md:px-5 md:py-3 md:text-[15.5px]"
+                >
+                  <div className="flex flex-col gap-1">
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {msg.attachments.map((att: any, i: number) => (
+                          <div
+                            key={i}
+                            className="overflow-hidden rounded-lg border border-black/10"
+                          >
+                            {att.type.startsWith("image/") ? (
+                              <img
+                                src={att.url}
+                                alt="attachment"
+                                className="max-h-60 max-w-xs object-cover"
+                              />
+                            ) : (
+                              <a
+                                href={att.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 bg-black/5 p-3 transition-colors hover:bg-black/10"
+                              >
+                                <div className="rounded bg-white p-1">
+                                  <svg
+                                    className="h-6 w-6 text-gray-500"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                    />
+                                  </svg>
+                                </div>
+                                <span className="text-sm font-medium underline">
+                                  {att.name}
+                                </span>
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <Markdown content={msg.content} />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          {/* User actions */}
+          {msg.status !== "streaming" && (
+            <div
+              className={cn(
+                "mt-1.5 mr-1 flex items-center gap-1 transition-opacity",
+                isMobile ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+              )}
+            >
+              <MessageActionMenu
+                type="retry"
+                onAction={(modelId?: string) => handleRetry(msg._id, modelId)}
+              >
+                <button className="flex items-center justify-center rounded-md p-1.5 text-foreground/40 transition-all hover:bg-black/5 hover:text-foreground/70">
+                  <RotateCcw size={15} />
+                </button>
+              </MessageActionMenu>
+              <MessageActionMenu
+                type="branch"
+                onAction={(modelId?: string) => handleBranch(msg._id, modelId)}
+              >
+                <button className="flex items-center justify-center rounded-md p-1.5 text-foreground/40 transition-all hover:bg-black/5 hover:text-foreground/70">
+                  <GitBranch size={15} />
+                </button>
+              </MessageActionMenu>
+              <ActionButton
+                icon={<Edit3 size={15} />}
+                label="Edit"
+                onClick={() => {
+                  setEditingId(msg._id);
+                  setEditingContent(msg.content);
+                }}
+              />
+              <ActionButton
+                icon={copiedId === msg._id ? <Check size={15} /> : <Copy size={15} />}
+                label="Copy"
+                onClick={() => handleCopy(msg._id, msg.content)}
+              />
+            </div>
+          )}
+        </motion.div>
+      );
+    }
+
+    // Render assistant group as ONE unified block
+    const groupMessages = group.messages;
+    const lastMsg = groupMessages[groupMessages.length - 1];
+    const isAnyStreaming = groupMessages.some((m: any) => m.status === "streaming");
+    const assistantGroupKey =
+      groupMessages?.[0]?._id ?? `assistant-group-${String(groupIndex)}`;
+
+    return (
+      <motion.div
+        key={assistantGroupKey}
+        initial={disableInitialAnimation ? false : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="group mb-6 flex w-full flex-col items-start"
+        style={{ contain: "layout style" }}
+      >
+        <div className="relative flex w-full max-w-none flex-col items-start px-4 py-1 text-foreground/90 md:px-2">
+          {/* Render ALL assistant messages in this group sequentially */}
+          {groupMessages.map((msg: any) => (
+            <div key={msg._id} className="w-full">
+              <StreamingMessage
+                messageId={msg._id}
+                content={msg.content}
+                reasoningContent={msg.reasoningContent}
+                toolCalls={msg.toolCalls}
+                toolResults={msg.toolCalls?.reduce((acc: any, tc: any) => {
+                  const id = tc?.id;
+                  if (!id) return acc;
+                  const content = toolOutputsByCallId[id];
+                  if (typeof content === "string") acc[id] = content;
+                  return acc;
+                }, {})}
+                products={msg.products}
+                isStreaming={msg.status === "streaming"}
+                onOpenExpanded={handleOpenExpanded}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Actions - only on the LAST message of the group, hidden during streaming */}
+        {!isAnyStreaming && (
+          <div
+            className={cn(
+              "mt-1.5 ml-1 flex items-center gap-1 transition-opacity",
+              isMobile ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+            )}
+          >
+            <ActionButton
+              icon={
+                copiedId === lastMsg._id ? <Check size={15} /> : <Copy size={15} />
+              }
+              label="Copy"
+              onClick={() => handleCopy(lastMsg._id, lastMsg.content)}
+            />
+            <MessageActionMenu
+              type="branch"
+              onAction={(modelId?: string) => {
+                const msgIndex =
+                  messages?.findIndex((m: any) => m._id === lastMsg._id) ?? -1;
+                if (msgIndex > 0) {
+                  for (let i = msgIndex - 1; i >= 0; i--) {
+                    if (messages?.[i]?.role === "user") {
+                      handleBranch(messages[i]._id, modelId);
+                      break;
+                    }
+                  }
+                }
+              }}
+            >
+              <button className="flex items-center justify-center rounded-md p-1.5 text-foreground/40 transition-all hover:bg-black/5 hover:text-foreground/70">
+                <GitBranch size={15} />
+              </button>
+            </MessageActionMenu>
+            <MessageActionMenu
+              type="retry"
+              onAction={(modelId?: string) => {
+                const msgIndex =
+                  messages?.findIndex((m: any) => m._id === lastMsg._id) ?? -1;
+                if (msgIndex > 0) {
+                  for (let i = msgIndex - 1; i >= 0; i--) {
+                    if (messages?.[i]?.role === "user") {
+                      handleRetry(messages[i]._id, modelId);
+                      break;
+                    }
+                  }
+                }
+              }}
+            >
+              <button className="flex items-center justify-center rounded-md p-1.5 text-foreground/40 transition-all hover:bg-black/5 hover:text-foreground/70">
+                <RotateCcw size={15} />
+              </button>
+            </MessageActionMenu>
+            <MessageMetadata
+              modelName={
+                lastMsg.modelId ? getModelDisplayName(lastMsg.modelId) : "AI"
+              }
+              wordCount={
+                lastMsg.content
+                  ?.trim()
+                  .split(/\s+/)
+                  .filter(Boolean).length ?? 0
+              }
+              toolCalls={groupMessages.reduce(
+                (sum: number, m: any) => sum + (m.toolCalls?.length || 0),
+                0,
+              )}
+            />
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
   return (
     <div className="relative flex h-dvh min-h-screen max-w-full overflow-hidden bg-background text-foreground">
       <div className="edge-glow-top" />
@@ -392,332 +750,80 @@ function ChatPage() {
               <NotFoundPage />
             </div>
           ) : (
-            <div className="scrollbar-hide message-scroll-area w-full max-w-5xl flex-1 overflow-x-hidden overflow-y-auto pt-16 pb-40 md:pt-20">
-              {thread?.parentThreadId && (
-                <div className="mb-8 flex justify-center">
-                  <Link
-                    to="/chat/$threadId"
-                    params={{ threadId: thread.parentThreadId }}
-                    className="group flex items-center gap-2 rounded-full border border-black/5 bg-background/50 px-4 py-1.5 text-[12px] font-bold text-foreground/50 shadow-sm backdrop-blur-sm transition-all hover:bg-black/5 hover:text-foreground"
-                  >
-                    <GitBranch size={14} className="text-primary/60" />
-                    <span>Go to parent conversation</span>
-                  </Link>
-                </div>
-              )}
+            <div
+              ref={messageScrollRef}
+              className="scrollbar-hide message-scroll-area w-full max-w-5xl flex-1 overflow-x-hidden overflow-y-auto pt-16 pb-40 md:pt-20"
+            >
               <TooltipProvider delayDuration={150}>
-                {(() => {
-                  // Filter messages first
-                  const filteredMessages =
-                    messages?.filter((msg: any) => {
-                      if (msg.role === "tool") return false;
-                      if (
-                        msg.role === "assistant" &&
-                        msg.status === "aborted" &&
-                        !msg.content?.trim() &&
-                        !msg.toolCalls?.length &&
-                        !msg.products?.length
-                      )
-                        return false;
-                      return true;
-                    }) || [];
+                {shouldVirtualizeMessages ? (
+                  <div
+                    className="relative w-full"
+                    style={{ height: messageVirtualizer.getTotalSize() }}
+                  >
+                    {messageVirtualizer.getVirtualItems().map((row) => {
+                      const block = virtualBlocks[row.index];
+                      if (!block) return null;
 
-                  // Group consecutive assistant messages
-                  const groups =
-                    groupConsecutiveAssistantMessages(filteredMessages);
-
-                  return groups.map((group, groupIndex) => {
-                    if (group.type === "user") {
-                      // Render user message as before
-                      const msg = group.messages[0];
-                      return (
-                        <motion.div
-                          key={msg._id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="group mb-6 flex w-full flex-col items-end"
-                          style={{ contain: "layout style" }}
-                        >
-                          <div className="relative flex w-full flex-col items-end">
-                            <AnimatePresence mode="wait">
-                              {editingId === msg._id ? (
-                                <motion.div
-                                  key="edit-input"
-                                  initial={{ opacity: 0, scale: 0.98 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  exit={{ opacity: 0, scale: 0.98 }}
-                                  transition={{ duration: 0.2 }}
-                                  layout="position"
-                                  className="flex w-full justify-end"
-                                >
-                                  <MessageEditInput
-                                    messageId={msg._id}
-                                    threadId={threadId}
-                                    initialContent={editingContent}
-                                    initialAttachments={msg.attachments}
-                                    onCancel={() => setEditingId(null)}
-                                    onSubmit={() => setEditingId(null)}
-                                  />
-                                </motion.div>
-                              ) : (
-                                <motion.div
-                                  key="message-content"
-                                  initial={{ opacity: 0, scale: 0.98 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  exit={{ opacity: 0, scale: 0.98 }}
-                                  transition={{ duration: 0.2 }}
-                                  layout="position"
-                                  className="max-w-[85%] rounded-2xl bg-zinc-100 px-4 py-2 text-left text-[14px] leading-relaxed break-words whitespace-pre-wrap text-zinc-900 shadow-sm transition-all md:px-5 md:py-3 md:text-[15.5px]"
-                                >
-                                  <div className="flex flex-col gap-1">
-                                    {msg.attachments &&
-                                      msg.attachments.length > 0 && (
-                                        <div className="mb-2 flex flex-wrap gap-2">
-                                          {msg.attachments.map(
-                                            (att: any, i: number) => (
-                                              <div
-                                                key={i}
-                                                className="overflow-hidden rounded-lg border border-black/10"
-                                              >
-                                                {att.type.startsWith(
-                                                  "image/",
-                                                ) ? (
-                                                  <img
-                                                    src={att.url}
-                                                    alt="attachment"
-                                                    className="max-h-60 max-w-xs object-cover"
-                                                  />
-                                                ) : (
-                                                  <a
-                                                    href={att.url}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="flex items-center gap-2 bg-black/5 p-3 transition-colors hover:bg-black/10"
-                                                  >
-                                                    <div className="rounded bg-white p-1">
-                                                      <svg
-                                                        className="h-6 w-6 text-gray-500"
-                                                        fill="none"
-                                                        viewBox="0 0 24 24"
-                                                        stroke="currentColor"
-                                                      >
-                                                        <path
-                                                          strokeLinecap="round"
-                                                          strokeLinejoin="round"
-                                                          strokeWidth={2}
-                                                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                                        />
-                                                      </svg>
-                                                    </div>
-                                                    <span className="text-sm font-medium underline">
-                                                      {att.name}
-                                                    </span>
-                                                  </a>
-                                                )}
-                                              </div>
-                                            ),
-                                          )}
-                                        </div>
-                                      )}
-                                    <Markdown content={msg.content} />
-                                  </div>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                          {/* User actions */}
-                          {msg.status !== "streaming" && (
-                            <div
-                              className={cn(
-                                "mt-1.5 mr-1 flex items-center gap-1 transition-opacity",
-                                isMobile
-                                  ? "opacity-100"
-                                  : "opacity-0 group-hover:opacity-100",
-                              )}
-                            >
-                              <MessageActionMenu
-                                type="retry"
-                                onAction={(modelId?: string) =>
-                                  handleRetry(msg._id, modelId)
-                                }
-                              >
-                                <button className="flex items-center justify-center rounded-md p-1.5 text-foreground/40 transition-all hover:bg-black/5 hover:text-foreground/70">
-                                  <RotateCcw size={15} />
-                                </button>
-                              </MessageActionMenu>
-                              <MessageActionMenu
-                                type="branch"
-                                onAction={(modelId?: string) =>
-                                  handleBranch(msg._id, modelId)
-                                }
-                              >
-                                <button className="flex items-center justify-center rounded-md p-1.5 text-foreground/40 transition-all hover:bg-black/5 hover:text-foreground/70">
-                                  <GitBranch size={15} />
-                                </button>
-                              </MessageActionMenu>
-                              <ActionButton
-                                icon={<Edit3 size={15} />}
-                                label="Edit"
-                                onClick={() => {
-                                  setEditingId(msg._id);
-                                  setEditingContent(msg.content);
-                                }}
-                              />
-                              <ActionButton
-                                icon={
-                                  copiedId === msg._id ? (
-                                    <Check size={15} />
-                                  ) : (
-                                    <Copy size={15} />
-                                  )
-                                }
-                                label="Copy"
-                                onClick={() => handleCopy(msg._id, msg.content)}
-                              />
-                            </div>
-                          )}
-                        </motion.div>
-                      );
-                    } else {
-                      // Render assistant group as ONE unified block
-                      const groupMessages = group.messages;
-                      const lastMsg = groupMessages[groupMessages.length - 1];
-                      const isAnyStreaming = groupMessages.some(
-                        (m: any) => m.status === "streaming",
-                      );
+                      const key =
+                        block.type === "anchor"
+                          ? "messages-anchor"
+                          : block.type === "parent-link"
+                            ? "parent-link-" + block.parentThreadId
+                            : block.group?.type === "user"
+                              ?
+                                block.group.messages?.[0]?._id ??
+                                "user-" + String(block.groupIndex)
+                              :
+                                block.group.messages?.[0]?._id ??
+                                "assistant-group-" + String(block.groupIndex);
 
                       return (
-                        <motion.div
-                          key={`assistant-group-${groupIndex}`}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="group mb-6 flex w-full flex-col items-start"
-                          style={{ contain: "layout style" }}
+                        <div
+                          key={key}
+                          ref={messageVirtualizer.measureElement}
+                          data-index={row.index}
+                          className="absolute left-0 top-0 w-full"
+                          style={{ transform: "translateY(" + row.start + "px)" }}
                         >
-                          <div className="relative flex w-full max-w-none flex-col items-start px-4 py-1 text-foreground/90 md:px-2">
-                            {/* Render ALL assistant messages in this group sequentially */}
-                            {groupMessages.map((msg: any) => (
-                              <div key={msg._id} className="w-full">
-                                <StreamingMessage
-                                  messageId={msg._id}
-                                  content={msg.content}
-                                  reasoningContent={msg.reasoningContent}
-                                  toolCalls={msg.toolCalls}
-                                  toolResults={msg.toolCalls?.reduce(
-                                    (acc: any, tc: any) => {
-                                      const toolMsg = messages?.find(
-                                        (m: any) =>
-                                          m.role === "tool" &&
-                                          m.toolCallId === tc.id,
-                                      );
-                                      if (toolMsg) acc[tc.id] = toolMsg.content;
-                                      return acc;
-                                    },
-                                    {},
-                                  )}
-                                  products={msg.products}
-                                  isStreaming={msg.status === "streaming"}
-                                  onOpenExpanded={handleOpenExpanded}
-                                />
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* Actions - only on the LAST message of the group, hidden during streaming */}
-                          {!isAnyStreaming && (
-                            <div
-                              className={cn(
-                                "mt-1.5 ml-1 flex items-center gap-1 transition-opacity",
-                                isMobile
-                                  ? "opacity-100"
-                                  : "opacity-0 group-hover:opacity-100",
-                              )}
-                            >
-                              <ActionButton
-                                icon={
-                                  copiedId === lastMsg._id ? (
-                                    <Check size={15} />
-                                  ) : (
-                                    <Copy size={15} />
-                                  )
-                                }
-                                label="Copy"
-                                onClick={() =>
-                                  handleCopy(lastMsg._id, lastMsg.content)
-                                }
-                              />
-                              <MessageActionMenu
-                                type="branch"
-                                onAction={(modelId?: string) => {
-                                  const msgIndex =
-                                    messages?.findIndex(
-                                      (m: any) => m._id === lastMsg._id,
-                                    ) ?? -1;
-                                  if (msgIndex > 0) {
-                                    for (let i = msgIndex - 1; i >= 0; i--) {
-                                      if (messages?.[i]?.role === "user") {
-                                        handleBranch(messages[i]._id, modelId);
-                                        break;
-                                      }
-                                    }
-                                  }
-                                }}
-                              >
-                                <button className="flex items-center justify-center rounded-md p-1.5 text-foreground/40 transition-all hover:bg-black/5 hover:text-foreground/70">
-                                  <GitBranch size={15} />
-                                </button>
-                              </MessageActionMenu>
-                              <MessageActionMenu
-                                type="retry"
-                                onAction={(modelId?: string) => {
-                                  const msgIndex =
-                                    messages?.findIndex(
-                                      (m: any) => m._id === lastMsg._id,
-                                    ) ?? -1;
-                                  if (msgIndex > 0) {
-                                    for (let i = msgIndex - 1; i >= 0; i--) {
-                                      if (messages?.[i]?.role === "user") {
-                                        handleRetry(messages[i]._id, modelId);
-                                        break;
-                                      }
-                                    }
-                                  }
-                                }}
-                              >
-                                <button className="flex items-center justify-center rounded-md p-1.5 text-foreground/40 transition-all hover:bg-black/5 hover:text-foreground/70">
-                                  <RotateCcw size={15} />
-                                </button>
-                              </MessageActionMenu>
-                              <MessageMetadata
-                                modelName={
-                                  lastMsg.modelId
-                                    ? getModelDisplayName(lastMsg.modelId)
-                                    : "AI"
-                                }
-                                wordCount={
-                                  lastMsg.content
-                                    ?.trim()
-                                    .split(/\s+/)
-                                    .filter(Boolean).length ?? 0
-                                }
-                                toolCalls={groupMessages.reduce(
-                                  (sum: number, m: any) =>
-                                    sum + (m.toolCalls?.length || 0),
-                                  0,
-                                )}
-                              />
-                            </div>
+                          {block.type === "parent-link" ? (
+                            renderParentThreadLink(block.parentThreadId)
+                          ) : block.type === "anchor" ? (
+                            <div ref={messagesEndRef} className="message-anchor" />
+                          ) : (
+                            renderMessageGroup(
+                              block.group,
+                              block.groupIndex,
+                              true,
+                            )
                           )}
-                        </motion.div>
+                        </div>
                       );
-                    }
-                  });
-                })()}
-                {/* Scroll anchor to prevent jumps during streaming */}
-                <div ref={messagesEndRef} className="message-anchor" />
+                    })}
+                  </div>
+                ) : (
+                  <>
+                    {thread?.parentThreadId &&
+                      renderParentThreadLink(thread.parentThreadId)}
+                    {groupedMessages.map((group, groupIndex) =>
+                      renderMessageGroup(group, groupIndex, false),
+                    )}
+                    {/* Scroll anchor to prevent jumps during streaming */}
+                    <div ref={messagesEndRef} className="message-anchor" />
+                  </>
+                )}
+
                 {messages === undefined && (
-                  <div className="flex h-full items-center justify-center opacity-20">
-                    <MessageSquare className="animate-pulse" size={48} />
+                  <div className="flex h-full flex-col items-center justify-center gap-4 px-6 py-10">
+                    <div className="h-3 w-40 animate-pulse rounded bg-black/10" />
+                    <div className="w-full max-w-xl space-y-3">
+                      <div className="ml-auto h-16 w-3/5 animate-pulse rounded-2xl bg-black/5" />
+                      <div className="h-20 w-4/5 animate-pulse rounded-2xl bg-black/5" />
+                      <div className="ml-auto h-10 w-2/5 animate-pulse rounded-2xl bg-black/5" />
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-foreground/40">
+                      <MessageSquare className="animate-pulse" size={16} />
+                      <span>Loading conversation...</span>
+                    </div>
                   </div>
                 )}
               </TooltipProvider>

@@ -10,6 +10,11 @@ import {
   DEFAULT_SUBCATEGORY_LIMIT,
   getGradientForCategory,
 } from "../data/exploreTaxonomy";
+import {
+  getExploreItemsCacheKey,
+  getOrSetExploreItemsCached,
+  peekExploreItemsCached,
+} from "../lib/exploreSectionsCache";
 
 export const Route = createFileRoute("/explore/category/$categoryId/")({
   component: CategoryIndexPage,
@@ -23,8 +28,10 @@ function CategoryIndexPage() {
   const subcategories = useQuery(api.ebayTaxonomy.listChildCategories, {
     categoryId,
   });
-  const [items, setItems] = useState<ShopItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const itemsKey = getExploreItemsCacheKey({ categoryId });
+  const initialItems = peekExploreItemsCached(itemsKey);
+  const [items, setItems] = useState<ShopItem[]>(() => initialItems ?? []);
+  const [isLoading, setIsLoading] = useState(() => !initialItems);
   const [showAllSubcategories, setShowAllSubcategories] = useState(false);
   const visibleSubcategories = useMemo(() => {
     if (!subcategories) return [];
@@ -36,22 +43,44 @@ function CategoryIndexPage() {
     : "from-[#f6d365] via-[#fda085] to-[#fbc2eb]";
 
   useEffect(() => {
+    // If this route stays mounted while the param changes, reset UI state to match the new category.
+    const cached = peekExploreItemsCached(itemsKey);
+    setItems(cached ?? []);
+    setIsLoading(!cached);
+    setShowAllSubcategories(false);
+  }, [itemsKey]);
+
+  useEffect(() => {
     if (!category) return;
+    let stale = false;
+    if (!peekExploreItemsCached(itemsKey)) {
+      setIsLoading(true);
+      setItems([]);
+    }
     const fetchData = async () => {
       try {
-        const data = await getExploreItems({
-          categoryId: category.categoryId,
-          categoryName: category.categoryName,
+        const data = await getOrSetExploreItemsCached({
+          key: itemsKey,
+          fetcher: () =>
+            getExploreItems({
+              categoryId: category.categoryId,
+              categoryName: category.categoryName,
+            }),
         });
+        if (stale) return;
         setItems(data);
       } catch (e) {
+        if (stale) return;
         console.error(e);
       } finally {
-        setIsLoading(false);
+        if (!stale) setIsLoading(false);
       }
     };
     fetchData();
-  }, [category, getExploreItems]);
+    return () => {
+      stale = true;
+    };
+  }, [category, getExploreItems, itemsKey]);
 
   if (category === null) {
     return (

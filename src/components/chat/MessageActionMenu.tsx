@@ -31,17 +31,9 @@ export function MessageActionMenu({ type, onAction, children }: MessageActionMen
 
   useEffect(() => {
     const loadModels = async () => {
-      const cached = localStorage.getItem('t3-models-cache')
-      const cacheTime = localStorage.getItem('t3-models-cache-time')
-      if (cached && cacheTime && Date.now() - parseInt(cacheTime) < 86400000) {
-        setModels(JSON.parse(cached))
-        return
-      }
       const fetched = await fetchOpenRouterModels()
       if (fetched.length > 0) {
         setModels(fetched)
-        localStorage.setItem('t3-models-cache', JSON.stringify(fetched))
-        localStorage.setItem('t3-models-cache-time', Date.now().toString())
       }
     }
     loadModels()

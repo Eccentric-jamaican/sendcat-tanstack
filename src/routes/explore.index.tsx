@@ -22,6 +22,11 @@ import { api } from "../../convex/_generated/api";
 import { useEffect, useMemo, useState } from "react";
 import { ProductCard } from "../components/product/ProductCard";
 import { type Product } from "../data/mockProducts";
+import {
+  getExploreItemsCacheKey,
+  getOrSetExploreItemsCached,
+  peekExploreItemsCached,
+} from "../lib/exploreSectionsCache";
 
 export const Route = createFileRoute("/explore/")({ component: ExplorePage });
 
@@ -29,8 +34,24 @@ function ExplorePage() {
   const isMobile = useIsMobile();
   const getExploreItems = useAction(api.explore.getExploreItems);
   const taxonomyCategories = useQuery(api.ebayTaxonomy.listTopCategories);
-  const [shopSections, setShopSections] = useState<ShopSection[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const trendingKey = getExploreItemsCacheKey({ section: "trending" });
+  const newKey = getExploreItemsCacheKey({ section: "new" });
+  const initialTrending = peekExploreItemsCached(trendingKey);
+  const initialNewArrivals = peekExploreItemsCached(newKey);
+
+  const [isLoading, setIsLoading] = useState(
+    () => !(initialTrending && initialNewArrivals),
+  );
+  const [shopSections, setShopSections] = useState<ShopSection[]>(() => {
+    const out: ShopSection[] = [];
+    if (initialTrending) {
+      out.push({ id: "trending", title: "Trending Now", items: initialTrending });
+    }
+    if (initialNewArrivals) {
+      out.push({ id: "new", title: "New Arrivals", items: initialNewArrivals });
+    }
+    return out;
+  });
   const currentYear = new Date().getFullYear();
   const curatedCategories = useMemo(
     () =>
@@ -43,8 +64,14 @@ function ExplorePage() {
     const fetchSections = async () => {
       try {
         const [trending, newArrivals] = await Promise.all([
-          getExploreItems({ section: "trending" }),
-          getExploreItems({ section: "new" }),
+          getOrSetExploreItemsCached({
+            key: trendingKey,
+            fetcher: () => getExploreItems({ section: "trending" }),
+          }),
+          getOrSetExploreItemsCached({
+            key: newKey,
+            fetcher: () => getExploreItems({ section: "new" }),
+          }),
         ]);
 
         setShopSections([
@@ -59,7 +86,7 @@ function ExplorePage() {
     };
 
     fetchSections();
-  }, [getExploreItems]);
+  }, [getExploreItems, newKey, trendingKey]);
 
   return (
     <>
