@@ -318,8 +318,45 @@ Approach:
 *   Virtualize the sidebar thread list first.
 *   Then evaluate chat message virtualization (harder due to variable heights and streaming updates).
 
+## Pass 3 and Pass 4 (Implemented)
+
+### Explore TTL cache (Pass 3)
+
+*   Added `src/lib/exploreSectionsCache.ts`:
+
+    *   In-memory TTL cache (default 5 minutes)
+    *   In-flight de-dupe to prevent concurrent duplicate action calls
+    *   `peekExploreItemsCached(key)` to seed initial UI state on revisit
+
+*   Updated:
+
+    *   `src/routes/explore.index.tsx` to cache `section:trending` and `section:new`
+    *   `src/routes/explore.category.$categoryId.index.tsx` to cache `category:${categoryId}`
+    *   `src/routes/explore.category.$categoryId.$subCategoryId.tsx` to cache `category:${subCategoryId}`
+
+### Sidebar virtualization (Pass 3)
+
+*   Updated `src/components/layout/Sidebar.tsx`:
+
+    *   Windowed rendering for unpinned thread list only (pinned stays fully rendered).
+    *   Thresholded: only virtualizes when `unpinnedThreads.length > 80`.
+    *   Uses a fixed row height with overscan for predictable performance without a new dependency.
+
+### Chat message virtualization (Pass 4)
+
+*   Updated `src/routes/chat.$threadId.tsx`:
+
+    *   Uses `@tanstack/react-virtual` to window `groupedMessages` when there are many groups.
+    *   Adds a virtual “parent conversation link” row and a virtual bottom anchor row so scroll-to-bottom remains stable.
+    *   Disables Framer Motion “initial” animations on virtualized rows to avoid re-animation when rows mount/unmount during scroll.
+    *   Dev-only debug toggle: add `?virt=1` to force virtualization even for short threads (useful for testing the code path).
+
+### Browser validation
+
+*   Verified virtualization code path renders in the browser by navigating to a chat route with `?virt=1` and confirming virtual rows exist (`[data-index]` elements inside `.message-scroll-area`).
+
 ## Suggested Metrics (So We Know It Worked)
 
 *   Network: count `openrouter.ai/api/v1/models` requests on first load (target: 1).
 *   Bundle: compare `Sidebar-*.js` size before/after dynamic import.
-*   UX: hover a thread then click and compare time to first meaningful chat render.eeH
+*   UX: hover a thread then click and compare time to first meaningful chat render.

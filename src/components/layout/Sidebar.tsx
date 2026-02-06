@@ -1,4 +1,11 @@
-import { useState, useRef, useEffect, type MouseEvent } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  type MouseEvent,
+} from "react";
 import { v4 as uuidv4 } from "uuid";
 import {
   PanelLeft,
@@ -173,6 +180,12 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 200);
   const [sessionId, setSessionId] = useState("");
 
+  const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
+  const unpinnedStartRef = useRef<HTMLDivElement | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
+  const [unpinnedScrollTop, setUnpinnedScrollTop] = useState(0);
+  const [unpinnedViewportHeight, setUnpinnedViewportHeight] = useState(0);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = localStorage.getItem("sendcat_session_id");
@@ -227,6 +240,19 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const renameThread = useMutation(api.threads.rename);
   const createShareToken = useMutation(api.threads.createShareToken);
 
+  const threadList = useMemo(
+    () => (Array.isArray(threads) ? threads : []),
+    [threads],
+  );
+  const pinnedThreads = useMemo(
+    () => threadList.filter((t: any) => t.isPinned),
+    [threadList],
+  );
+  const unpinnedThreads = useMemo(
+    () => threadList.filter((t: any) => !t.isPinned),
+    [threadList],
+  );
+
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
@@ -234,6 +260,40 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const shareRequestRef = useRef(false);
   const prefetchedThreadsRef = useRef(new Set<string>());
   const prefetchedThreadRoutesRef = useRef(new Set<string>());
+
+  useLayoutEffect(() => {
+    const el = sidebarScrollRef.current;
+    if (!el) return;
+
+    const update = () => setUnpinnedViewportHeight(el.clientHeight);
+    update();
+
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current != null) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
+    };
+  }, []);
+
+  const handleSidebarScroll = () => {
+    const el = sidebarScrollRef.current;
+    if (!el) return;
+
+    const offsetTop = unpinnedStartRef.current?.offsetTop ?? 0;
+
+    if (scrollRafRef.current != null) {
+      cancelAnimationFrame(scrollRafRef.current);
+    }
+    scrollRafRef.current = requestAnimationFrame(() => {
+      setUnpinnedScrollTop(Math.max(0, el.scrollTop - offsetTop));
+    });
+  };
 
   useEffect(() => {
     setShareToken(null);
@@ -421,6 +481,38 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     await removeThread({ id, sessionId: sessionId || undefined });
   };
 
+  useEffect(() => {
+    // Keep virtualization math in sync when pinned sections appear/disappear.
+    handleSidebarScroll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinnedThreads.length, unpinnedThreads.length, isOpen]);
+
+  const THREAD_ROW_HEIGHT = 44;
+  const THREAD_OVERSCAN = 8;
+  const shouldVirtualizeUnpinned = unpinnedThreads.length > 80;
+
+  const safeViewportHeight = unpinnedViewportHeight || 480;
+  const startIndex = shouldVirtualizeUnpinned
+    ? Math.max(
+        0,
+        Math.floor(unpinnedScrollTop / THREAD_ROW_HEIGHT) - THREAD_OVERSCAN,
+      )
+    : 0;
+  const endIndex = shouldVirtualizeUnpinned
+    ? Math.min(
+        unpinnedThreads.length,
+        Math.ceil(
+          (unpinnedScrollTop + safeViewportHeight) / THREAD_ROW_HEIGHT,
+        ) + THREAD_OVERSCAN,
+      )
+    : unpinnedThreads.length;
+  const visibleUnpinned = shouldVirtualizeUnpinned
+    ? unpinnedThreads.slice(startIndex, endIndex)
+    : unpinnedThreads;
+  const unpinnedTotalHeight = shouldVirtualizeUnpinned
+    ? unpinnedThreads.length * THREAD_ROW_HEIGHT
+    : undefined;
+
   return (
     <>
       {/* Mobile Backdrop Overlay */}
@@ -590,15 +682,17 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
             </div>
           </div>
 
-          <div className="scrollbar-hide sidebar-scroll-area flex-1 overflow-y-auto px-1">
-            {threads && threads.some((t) => t.isPinned) && (
+          <div
+            ref={sidebarScrollRef}
+            onScroll={handleSidebarScroll}
+            className="scrollbar-hide sidebar-scroll-area flex-1 overflow-y-auto px-1"
+          >
+            {pinnedThreads.length > 0 && (
               <>
                 <div className="px-3 py-3 text-[10px] font-bold tracking-[0.05em] text-foreground/40 uppercase opacity-80">
                   Pinned
                 </div>
-                {threads
-                  .filter((t) => t.isPinned)
-                  .map((thread) => (
+                {pinnedThreads.map((thread: any) => (
                     <ThreadItem
                       key={thread._id}
                       thread={thread}
@@ -621,6 +715,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
             <div className="px-3 py-3 text-[10px] font-bold tracking-[0.05em] text-foreground/40 uppercase opacity-80">
               Today
             </div>
+            <div ref={unpinnedStartRef} />
             {threads === undefined ? (
               <div className="animate-pulse space-y-3 px-6 py-4">
                 <div className="h-3 w-3/4 rounded bg-black/5" />
@@ -628,10 +723,40 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
                 <div className="h-3 w-2/3 rounded bg-black/5" />
                 <div className="h-3 w-1/3 rounded bg-black/5" />
               </div>
+            ) : shouldVirtualizeUnpinned ? (
+              <div style={{ height: unpinnedTotalHeight, position: "relative" }}>
+                {visibleUnpinned.map((thread: any, idx: number) => {
+                  const absoluteIndex = startIndex + idx;
+                  return (
+                    <div
+                      key={thread._id}
+                      style={{
+                        position: "absolute",
+                        top: absoluteIndex * THREAD_ROW_HEIGHT,
+                        left: 0,
+                        right: 0,
+                      }}
+                    >
+                      <ThreadItem
+                        thread={thread}
+                        onPrefetch={prefetchThread}
+                        navigate={navigate}
+                        activeThreadId={activeThreadId}
+                        editingId={editingId}
+                        setEditingId={setEditingId}
+                        editingTitle={editingTitle}
+                        setEditingTitle={setEditingTitle}
+                        handleRename={handleRename}
+                        togglePinned={togglePinned}
+                        onDelete={handleDeleteThread}
+                        sessionId={sessionId}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
-              threads
-                .filter((t) => !t.isPinned)
-                .map((thread) => (
+              unpinnedThreads.map((thread: any) => (
                   <ThreadItem
                     key={thread._id}
                     thread={thread}

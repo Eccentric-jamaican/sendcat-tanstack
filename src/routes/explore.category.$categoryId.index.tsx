@@ -10,6 +10,11 @@ import {
   DEFAULT_SUBCATEGORY_LIMIT,
   getGradientForCategory,
 } from "../data/exploreTaxonomy";
+import {
+  getExploreItemsCacheKey,
+  getOrSetExploreItemsCached,
+  peekExploreItemsCached,
+} from "../lib/exploreSectionsCache";
 
 export const Route = createFileRoute("/explore/category/$categoryId/")({
   component: CategoryIndexPage,
@@ -23,8 +28,10 @@ function CategoryIndexPage() {
   const subcategories = useQuery(api.ebayTaxonomy.listChildCategories, {
     categoryId,
   });
-  const [items, setItems] = useState<ShopItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const itemsKey = getExploreItemsCacheKey({ categoryId });
+  const initialItems = peekExploreItemsCached(itemsKey);
+  const [items, setItems] = useState<ShopItem[]>(() => initialItems ?? []);
+  const [isLoading, setIsLoading] = useState(() => !initialItems);
   const [showAllSubcategories, setShowAllSubcategories] = useState(false);
   const visibleSubcategories = useMemo(() => {
     if (!subcategories) return [];
@@ -39,9 +46,13 @@ function CategoryIndexPage() {
     if (!category) return;
     const fetchData = async () => {
       try {
-        const data = await getExploreItems({
-          categoryId: category.categoryId,
-          categoryName: category.categoryName,
+        const data = await getOrSetExploreItemsCached({
+          key: itemsKey,
+          fetcher: () =>
+            getExploreItems({
+              categoryId: category.categoryId,
+              categoryName: category.categoryName,
+            }),
         });
         setItems(data);
       } catch (e) {
@@ -51,7 +62,7 @@ function CategoryIndexPage() {
       }
     };
     fetchData();
-  }, [category, getExploreItems]);
+  }, [category, getExploreItems, itemsKey]);
 
   if (category === null) {
     return (
