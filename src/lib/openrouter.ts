@@ -158,8 +158,9 @@ export async function fetchOpenRouterModels(): Promise<AppModel[]> {
       const isFast = m.id.includes('flash') || m.id.includes('haiku') || m.id.includes('mini') || m.id.includes('turbo')
 
       // Format pricing
-      const formatPrice = (p: string) => {
-        const val = parseFloat(p) * 1000000
+      const formatPrice = (p: string | undefined) => {
+        const val = parseFloat(p ?? "") * 1000000
+        if (!Number.isFinite(val)) return "N/A"
         return val === 0 ? "Free" : `$${val.toFixed(2)}`
       }
 

@@ -40,6 +40,7 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { useQuery, useMutation, useConvex, useConvexAuth } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import {
   useNavigate,
   useParams,
@@ -277,7 +278,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     const ro = new ResizeObserver(() => update());
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [isOpen]);
 
   useEffect(() => {
     return () => {
@@ -432,9 +433,11 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     if (prefetchedThreadsRef.current.has(threadId)) return;
     prefetchedThreadsRef.current.add(threadId);
 
+    const convexThreadId = threadId as Id<"threads">;
+
     // Prime the Convex query caches for quick navigation. Failures should be silent.
-    void convex.query(api.threads.get, { id: threadId as any, sessionId }).catch(() => {});
-    void convex.query(api.messages.list, { threadId: threadId as any, sessionId }).catch(() => {});
+    void convex.query(api.threads.get, { id: convexThreadId, sessionId }).catch(() => {});
+    void convex.query(api.messages.list, { threadId: convexThreadId, sessionId }).catch(() => {});
   };
 
   // Idle prefetch: warm the most likely next click (first visible thread).
@@ -442,7 +445,12 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     if (!threads || threads.length === 0) return;
     if (!sessionId || shouldSkipQuery) return;
 
-    const target = threads[0]?._id as string | undefined;
+    const target =
+      (unpinnedThreads.find((t: any) => t?._id && t._id !== activeThreadId)
+        ?._id as string | undefined) ??
+      (threads.find((t: any) => t?._id && t._id !== activeThreadId)?._id as
+        | string
+        | undefined);
     if (!target) return;
 
     const schedule = (cb: () => void) => {

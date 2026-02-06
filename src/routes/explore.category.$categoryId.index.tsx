@@ -52,6 +52,7 @@ function CategoryIndexPage() {
 
   useEffect(() => {
     if (!category) return;
+    let stale = false;
     if (!peekExploreItemsCached(itemsKey)) {
       setIsLoading(true);
       setItems([]);
@@ -66,14 +67,19 @@ function CategoryIndexPage() {
               categoryName: category.categoryName,
             }),
         });
+        if (stale) return;
         setItems(data);
       } catch (e) {
+        if (stale) return;
         console.error(e);
       } finally {
-        setIsLoading(false);
+        if (!stale) setIsLoading(false);
       }
     };
     fetchData();
+    return () => {
+      stale = true;
+    };
   }, [category, getExploreItems, itemsKey]);
 
   if (category === null) {
