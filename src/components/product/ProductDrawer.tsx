@@ -14,14 +14,14 @@ import { useEffect, useRef, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { cn } from "../../lib/utils";
-import {
-  getProductImageFallback,
-  getProductImageUrl,
-} from "./productImage";
+import { getProductImageFallback, getProductImageUrl } from "./productImage";
 import { FavoriteListSelector } from "./FavoriteListSelector";
 import { buildEpnUrl, isEbayUrl } from "../../lib/affiliate";
 import { trackEvent } from "../../lib/analytics";
-import { getCachedProductDetails, getOrSetProductDetails } from "../../lib/productDetailsCache";
+import {
+  getCachedProductDetails,
+  getOrSetProductDetails,
+} from "../../lib/productDetailsCache";
 import { mapEbayItemDetailsToProduct } from "../../lib/mapEbayItemDetailsToProduct";
 
 interface ProductDrawerProps {
@@ -63,9 +63,7 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
     typeof supplierLogo === "string" && /^(https?:)?\/\//i.test(supplierLogo);
   const priceLabel = product?.priceRange || product?.price || "-";
   const imageFallback = product ? getProductImageFallback(product) : "";
-  const imageSrc = product
-    ? getProductImageUrl(product) || imageFallback
-    : "";
+  const imageSrc = product ? getProductImageUrl(product) || imageFallback : "";
   const primaryUrl = product?.productUrl || product?.url;
   const isEbayListing = isEbayUrl(primaryUrl);
   const affiliateUrl = isEbayListing
@@ -137,15 +135,27 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
         setLoading(true);
         setError(null);
 
-        const mappedProduct = await getOrSetProductDetails(productId, async () => {
-          const data = await getItemDetails({ itemId: productId });
-          return mapEbayItemDetailsToProduct(data) satisfies Product;
-        });
+        const mappedProduct = await getOrSetProductDetails(
+          productId,
+          async () => {
+            const data = await getItemDetails({ itemId: productId });
+            if (!data) {
+              throw new Error("ITEM_DETAILS_NOT_FOUND");
+            }
+            return mapEbayItemDetailsToProduct(data) satisfies Product;
+          },
+        );
 
         setProduct(mappedProduct);
       } catch (err) {
         console.error("Failed to fetch product details:", err);
-        setError("We couldn't retrieve the details for this item right now.");
+        const message =
+          err instanceof Error ? err.message : String(err ?? "Unknown error");
+        if (message === "ITEM_DETAILS_NOT_FOUND") {
+          setError("This listing is no longer available.");
+        } else {
+          setError("We couldn't retrieve the details for this item right now.");
+        }
       } finally {
         setLoading(false);
       }
@@ -267,7 +277,7 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
                     trigger={
                       <button
                         className={cn(
-                          "absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm transition-all hover:bg-white hover:scale-110 shadow-md",
+                          "absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/80 shadow-md backdrop-blur-sm transition-all hover:scale-110 hover:bg-white",
                           isFavorited ? "text-primary" : "text-gray-400",
                         )}
                       >
@@ -356,8 +366,7 @@ export function ProductDrawer({ productId, initialData }: ProductDrawerProps) {
                     />
                   ) : (
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 font-bold text-zinc-600">
-                      {(typeof supplierLogo === "string" &&
-                      !supplierLogoIsUrl
+                      {(typeof supplierLogo === "string" && !supplierLogoIsUrl
                         ? supplierLogo
                         : "") ||
                         merchantLabel?.charAt(0).toUpperCase() ||

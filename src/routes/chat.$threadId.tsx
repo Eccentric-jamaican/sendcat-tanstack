@@ -129,7 +129,9 @@ export const Route = createFileRoute("/chat/$threadId")({
 
 function ChatRoute() {
   return (
-    <ClientOnly fallback={<div className="min-h-screen bg-background text-foreground" />}>
+    <ClientOnly
+      fallback={<div className="min-h-screen bg-background text-foreground" />}
+    >
       <ChatPage />
     </ClientOnly>
   );
@@ -157,18 +159,20 @@ function ChatPage() {
     setSessionReady(true);
   }, []);
 
-  // Skip query while Convex auth is loading to prevent "Access denied" on reload
-  const messages = useQuery(
-    api.messages.list,
-    isConvexAuthLoading || !sessionReady
-      ? "skip"
-      : { threadId: threadId as any, sessionId },
-  );
   const thread = useQuery(
     api.threads.get,
     isConvexAuthLoading || !sessionReady
       ? "skip"
       : { id: threadId as any, sessionId },
+  );
+  const messages = useQuery(
+    api.messages.list,
+    isConvexAuthLoading ||
+      !sessionReady ||
+      thread === undefined ||
+      thread === null
+      ? "skip"
+      : { threadId: threadId as any, sessionId },
   );
   const createThread = useMutation(api.threads.create);
   const sendMessage = useMutation(api.messages.send);
@@ -365,8 +369,6 @@ function ChatPage() {
     setBranchingMessageId(null);
   };
 
-  const isEmpty = messages !== undefined && messages.length === 0;
-
   const filteredMessages = useMemo(() => {
     return (
       messages?.filter((msg: any) => {
@@ -384,6 +386,10 @@ function ChatPage() {
       }) ?? []
     );
   }, [messages]);
+
+  const isThreadMissing = thread === null;
+  const isEmpty =
+    !isThreadMissing && messages !== undefined && filteredMessages.length === 0;
 
   const groupedMessages = useMemo(() => {
     return groupConsecutiveAssistantMessages(filteredMessages);
@@ -405,7 +411,10 @@ function ChatPage() {
   const virtualBlocks: VirtualBlock[] = useMemo(() => {
     const blocks: VirtualBlock[] = [];
     if (thread?.parentThreadId) {
-      blocks.push({ type: "parent-link", parentThreadId: thread.parentThreadId });
+      blocks.push({
+        type: "parent-link",
+        parentThreadId: thread.parentThreadId,
+      });
     }
     groupedMessages.forEach((group, groupIndex) => {
       blocks.push({ type: "group", group, groupIndex });
@@ -478,9 +487,7 @@ function ChatPage() {
       return (
         <motion.div
           key={msg._id}
-          initial={
-            disableInitialAnimation ? false : { opacity: 0, y: 10 }
-          }
+          initial={disableInitialAnimation ? false : { opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="group mb-6 flex w-full flex-col items-end"
           style={{ contain: "layout style" }}
@@ -600,7 +607,13 @@ function ChatPage() {
                 }}
               />
               <ActionButton
-                icon={copiedId === msg._id ? <Check size={15} /> : <Copy size={15} />}
+                icon={
+                  copiedId === msg._id ? (
+                    <Check size={15} />
+                  ) : (
+                    <Copy size={15} />
+                  )
+                }
                 label="Copy"
                 onClick={() => handleCopy(msg._id, msg.content)}
               />
@@ -613,7 +626,9 @@ function ChatPage() {
     // Render assistant group as ONE unified block
     const groupMessages = group.messages;
     const lastMsg = groupMessages[groupMessages.length - 1];
-    const isAnyStreaming = groupMessages.some((m: any) => m.status === "streaming");
+    const isAnyStreaming = groupMessages.some(
+      (m: any) => m.status === "streaming",
+    );
     const assistantGroupKey =
       groupMessages?.[0]?._id ?? `assistant-group-${String(groupIndex)}`;
 
@@ -659,7 +674,11 @@ function ChatPage() {
           >
             <ActionButton
               icon={
-                copiedId === lastMsg._id ? <Check size={15} /> : <Copy size={15} />
+                copiedId === lastMsg._id ? (
+                  <Check size={15} />
+                ) : (
+                  <Copy size={15} />
+                )
               }
               label="Copy"
               onClick={() => handleCopy(lastMsg._id, lastMsg.content)}
@@ -707,10 +726,7 @@ function ChatPage() {
                 lastMsg.modelId ? getModelDisplayName(lastMsg.modelId) : "AI"
               }
               wordCount={
-                lastMsg.content
-                  ?.trim()
-                  .split(/\s+/)
-                  .filter(Boolean).length ?? 0
+                lastMsg.content?.trim().split(/\s+/).filter(Boolean).length ?? 0
               }
               toolCalls={groupMessages.reduce(
                 (sum: number, m: any) => sum + (m.toolCalls?.length || 0),
@@ -738,17 +754,17 @@ function ChatPage() {
             isEmpty ? "justify-center" : "justify-start",
           )}
         >
-          {isEmpty ? (
+          {isThreadMissing ? (
+            <div className="flex h-full w-full flex-col items-center justify-center p-4">
+              <NotFoundPage />
+            </div>
+          ) : isEmpty ? (
             <div className="flex h-full w-full flex-col items-center justify-center">
               <LandingHero
                 onSelectPrompt={(text) =>
                   chatInputRef.current?.setContentAndSend(text)
                 }
               />
-            </div>
-          ) : messages === null || thread === null ? (
-            <div className="flex h-full w-full flex-col items-center justify-center p-4">
-              <NotFoundPage />
             </div>
           ) : (
             <div
@@ -771,25 +787,28 @@ function ChatPage() {
                           : block.type === "parent-link"
                             ? "parent-link-" + block.parentThreadId
                             : block.group?.type === "user"
-                              ?
-                                block.group.messages?.[0]?._id ??
-                                "user-" + String(block.groupIndex)
-                              :
-                                block.group.messages?.[0]?._id ??
-                                "assistant-group-" + String(block.groupIndex);
+                              ? (block.group.messages?.[0]?._id ??
+                                "user-" + String(block.groupIndex))
+                              : (block.group.messages?.[0]?._id ??
+                                "assistant-group-" + String(block.groupIndex));
 
                       return (
                         <div
                           key={key}
                           ref={messageVirtualizer.measureElement}
                           data-index={row.index}
-                          className="absolute left-0 top-0 w-full"
-                          style={{ transform: "translateY(" + row.start + "px)" }}
+                          className="absolute top-0 left-0 w-full"
+                          style={{
+                            transform: "translateY(" + row.start + "px)",
+                          }}
                         >
                           {block.type === "parent-link" ? (
                             renderParentThreadLink(block.parentThreadId)
                           ) : block.type === "anchor" ? (
-                            <div ref={messagesEndRef} className="message-anchor" />
+                            <div
+                              ref={messagesEndRef}
+                              className="message-anchor"
+                            />
                           ) : (
                             renderMessageGroup(
                               block.group,
@@ -834,29 +853,31 @@ function ChatPage() {
 
         {/* ChatInput - Moved outside of main to control Z-Index layering over portals */}
         {/* We hide the input when product selection is active to show the Floating Action Bar */}
-        <div
-          className={cn(
-            "transition-all duration-300 ease-in-out",
-            isExpandedOpen
-              ? "fixed bottom-0 left-0 z-[550] w-full px-2 pt-0 pb-1 md:px-4 md:pb-2"
-              : "absolute bottom-0 left-0 z-[50] w-full px-2 pt-0 pb-1 md:px-4 md:pb-2",
-            selectedProductIds.length > 0
-              ? "pointer-events-none translate-y-24 opacity-0"
-              : "translate-y-0 opacity-100",
-          )}
-          style={{
-            paddingBottom:
-              "calc(env(safe-area-inset-bottom, 0px) + var(--visual-viewport-bottom, 0px) + 4px)",
-          }}
-        >
-          <ChatInput
-            existingThreadId={threadId}
-            ref={chatInputRef}
-            placeholder={
-              isExpandedOpen ? "Ask a follow up" : "Type your message here..."
-            }
-          />
-        </div>
+        {!isThreadMissing && (
+          <div
+            className={cn(
+              "transition-all duration-300 ease-in-out",
+              isExpandedOpen
+                ? "fixed bottom-0 left-0 z-[550] w-full px-2 pt-0 pb-1 md:px-4 md:pb-2"
+                : "absolute bottom-0 left-0 z-[50] w-full px-2 pt-0 pb-1 md:px-4 md:pb-2",
+              selectedProductIds.length > 0
+                ? "pointer-events-none translate-y-24 opacity-0"
+                : "translate-y-0 opacity-100",
+            )}
+            style={{
+              paddingBottom:
+                "calc(env(safe-area-inset-bottom, 0px) + var(--visual-viewport-bottom, 0px) + 4px)",
+            }}
+          >
+            <ChatInput
+              existingThreadId={threadId}
+              ref={chatInputRef}
+              placeholder={
+                isExpandedOpen ? "Ask a follow up" : "Type your message here..."
+              }
+            />
+          </div>
+        )}
       </div>
 
       {/* Floating Selection Bar for Expanded View */}
