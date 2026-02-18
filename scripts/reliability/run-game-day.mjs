@@ -2,16 +2,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
-
-function parseArgs(argv) {
-  const out = new Map();
-  for (const arg of argv) {
-    if (!arg.startsWith("--")) continue;
-    const [rawKey, rawValue] = arg.slice(2).split("=");
-    out.set(rawKey, rawValue ?? "true");
-  }
-  return out;
-}
+import { parseArgs } from "./parseArgs.mjs";
 
 function extractReportPath(output) {
   const line = output
@@ -114,7 +105,9 @@ async function main() {
 
   const findings = [];
   if (probeReport && probeReport.passed !== true) {
-    findings.push("Synthetic probes reported at least one failing guard check.");
+    findings.push(
+      "Synthetic probes reported at least one failing guard check.",
+    );
   }
   for (const drill of drillReports) {
     if (!drill.report) continue;

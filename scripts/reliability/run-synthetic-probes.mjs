@@ -1,16 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-
-function parseArgs(argv) {
-  const out = new Map();
-  for (const arg of argv) {
-    if (!arg.startsWith("--")) continue;
-    const [rawKey, rawValue] = arg.slice(2).split("=");
-    out.set(rawKey, rawValue ?? "true");
-  }
-  return out;
-}
+import { parseArgs } from "./parseArgs.mjs";
 
 function withPath(baseUrl, path, params) {
   const url = new URL(path, baseUrl);
@@ -68,7 +59,10 @@ async function main() {
     );
   }
 
-  const probeOrigin = args.get("origin") || process.env.RELIABILITY_PROBE_ORIGIN || "https://www.sendcat.app";
+  const probeOrigin =
+    args.get("origin") ||
+    process.env.RELIABILITY_PROBE_ORIGIN ||
+    "https://www.sendcat.app";
   const gmailToken =
     args.get("gmail-token") || process.env.GMAIL_PUBSUB_VERIFY_TOKEN || "";
 
@@ -84,7 +78,10 @@ async function main() {
           },
         }),
       evaluate: (response) => {
-        const allowOrigin = getHeader(response.headers, "access-control-allow-origin");
+        const allowOrigin = getHeader(
+          response.headers,
+          "access-control-allow-origin",
+        );
         const statusOk = response.status === 200 || response.status === 204;
         const headerOk = allowOrigin === probeOrigin;
         return {
@@ -123,7 +120,11 @@ async function main() {
       name: "gmail_push_guard",
       request: () =>
         fetch(
-          withPath(baseUrl, "/api/gmail/push", gmailToken ? { token: gmailToken } : undefined),
+          withPath(
+            baseUrl,
+            "/api/gmail/push",
+            gmailToken ? { token: gmailToken } : undefined,
+          ),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -220,7 +221,9 @@ async function main() {
   const outputFile = resolve(outputDir, `synthetic-probes-${stamp}.json`);
   await writeFile(outputFile, JSON.stringify(report, null, 2), "utf8");
 
-  console.log(`Synthetic probes completed. Overall pass: ${passed ? "YES" : "NO"}`);
+  console.log(
+    `Synthetic probes completed. Overall pass: ${passed ? "YES" : "NO"}`,
+  );
   console.log(`Report: ${outputFile}`);
   for (const probe of results) {
     console.log(

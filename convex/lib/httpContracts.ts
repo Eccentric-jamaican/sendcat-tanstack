@@ -14,11 +14,10 @@ export const gmailPushEnvelopeSchema = z.object({
 });
 
 export const gmailHistoryPayloadSchema = z.object({
-  emailAddress: z.string().email(),
+  emailAddress: z.email(),
   historyId: z.string().min(1),
 });
 
 export const whatsappWebhookSchema = z.object({
   entry: z.array(z.any()).default([]),
 });
-

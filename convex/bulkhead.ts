@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "./_generated/server";
 
 const MIN_LEASE_TTL_MS = 15_000;
+const MAX_OPPORTUNISTIC_DELETIONS_PER_CALL = 500;
+const MAX_CLEANUP_DELETIONS_PER_RUN = 500;
 
 export const acquireSlot = internalMutation({
   args: {
@@ -14,6 +16,7 @@ export const acquireSlot = internalMutation({
     const now = Date.now();
     const maxConcurrent = Math.max(Math.floor(args.maxConcurrent), 1);
     const leaseTtlMs = Math.max(Math.floor(args.leaseTtlMs), MIN_LEASE_TTL_MS);
+    let deleted = 0;
 
     // Opportunistic cleanup of expired leases for this provider.
     while (true) {
@@ -25,8 +28,11 @@ export const acquireSlot = internalMutation({
         .take(100);
       if (expired.length === 0) break;
       for (const row of expired) {
+        if (deleted >= MAX_OPPORTUNISTIC_DELETIONS_PER_CALL) break;
         await ctx.db.delete(row._id);
+        deleted += 1;
       }
+      if (deleted >= MAX_OPPORTUNISTIC_DELETIONS_PER_CALL) break;
     }
 
     const existingLease = await ctx.db
@@ -36,9 +42,15 @@ export const acquireSlot = internalMutation({
       )
       .first();
     if (existingLease) {
+      const active = await ctx.db
+        .query("outboundBulkheadLeases")
+        .withIndex("by_provider_expires", (q) =>
+          q.eq("provider", args.provider).gt("expiresAt", now),
+        )
+        .take(maxConcurrent + 1);
       return {
         acquired: true,
-        inFlight: 1,
+        inFlight: active.length,
         retryAfterMs: 0,
       };
     }
@@ -110,9 +122,11 @@ export const cleanupExpiredLeases = internalMutation({
       if (batch.length === 0) break;
 
       for (const row of batch) {
+        if (deleted >= MAX_CLEANUP_DELETIONS_PER_RUN) break;
         await ctx.db.delete(row._id);
         deleted += 1;
       }
+      if (deleted >= MAX_CLEANUP_DELETIONS_PER_RUN) break;
     }
 
     return { deleted };

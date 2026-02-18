@@ -2,16 +2,7 @@
 import { createHmac } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-
-function parseArgs(argv) {
-  const out = new Map();
-  for (const arg of argv) {
-    if (!arg.startsWith("--")) continue;
-    const [rawKey, rawValue] = arg.slice(2).split("=");
-    out.set(rawKey, rawValue ?? "true");
-  }
-  return out;
-}
+import { parseArgs } from "./parseArgs.mjs";
 
 function toNumber(value, fallback) {
   const n = Number(value);
@@ -107,14 +98,24 @@ async function runStage({ name, total, durationMs, concurrency, makeRequest }) {
     statuses,
     errors,
     latency: {
-      minMs: latencies.length > 0 ? Math.min(...latencies) : 0,
+      minMs:
+        latencies.length > 0
+          ? latencies.reduce((min, value) => Math.min(min, value), Infinity)
+          : 0,
       p50Ms: percentile(latencies, 50),
       p95Ms: percentile(latencies, 95),
       p99Ms: percentile(latencies, 99),
-      maxMs: latencies.length > 0 ? Math.max(...latencies) : 0,
+      maxMs:
+        latencies.length > 0
+          ? latencies.reduce((max, value) => Math.max(max, value), -Infinity)
+          : 0,
       avgMs:
         latencies.length > 0
-          ? Number((latencies.reduce((a, b) => a + b, 0) / latencies.length).toFixed(2))
+          ? Number(
+              (latencies.reduce((a, b) => a + b, 0) / latencies.length).toFixed(
+                2,
+              ),
+            )
           : 0,
     },
   };
@@ -129,7 +130,10 @@ function evaluateSlo(summary, slo) {
     .filter(([status]) => !slo.allowedStatuses.includes(Number(status)))
     .reduce((acc, [, count]) => acc + count, 0);
 
-  const networkErrors = Object.values(summary.errors).reduce((acc, count) => acc + count, 0);
+  const networkErrors = Object.values(summary.errors).reduce(
+    (acc, count) => acc + count,
+    0,
+  );
 
   const fiveXxRate = total > 0 ? fiveXx / total : 0;
   const networkErrorRate = total > 0 ? networkErrors / total : 0;
@@ -199,7 +203,10 @@ async function runScenario(config) {
     totalRequests: stageResults.reduce((acc, s) => acc + s.executed, 0),
     completed: stageResults.reduce((acc, s) => acc + s.completed, 0),
     failed: stageResults.reduce((acc, s) => acc + s.failed, 0),
-    statuses: stageResults.reduce((acc, s) => mergeCounters(acc, s.statuses), {}),
+    statuses: stageResults.reduce(
+      (acc, s) => mergeCounters(acc, s.statuses),
+      {},
+    ),
     errors: stageResults.reduce((acc, s) => mergeCounters(acc, s.errors), {}),
     latency: {
       p95Ms: Math.max(...stageResults.map((s) => s.latency.p95Ms), 0),
@@ -247,7 +254,12 @@ function createStagesForProfile(profile) {
     case "soak":
       return [
         // ~4 minute steady run for drift/memory style checks.
-        { name: "soak", durationMs: 4 * 60_000, concurrency: 12, pauseAfterMs: 500 },
+        {
+          name: "soak",
+          durationMs: 4 * 60_000,
+          concurrency: 12,
+          pauseAfterMs: 500,
+        },
       ];
     case "standard":
     default:
@@ -307,7 +319,8 @@ async function main() {
   const startedAt = new Date().toISOString();
   const authToken =
     args.get("auth-token") || process.env.RELIABILITY_AUTH_TOKEN || "";
-  const threadId = args.get("thread-id") || process.env.RELIABILITY_THREAD_ID || "";
+  const threadId =
+    args.get("thread-id") || process.env.RELIABILITY_THREAD_ID || "";
   const gmailVerifyToken =
     args.get("gmail-token") || process.env.GMAIL_PUBSUB_VERIFY_TOKEN || "";
   const whatsappAppSecret =

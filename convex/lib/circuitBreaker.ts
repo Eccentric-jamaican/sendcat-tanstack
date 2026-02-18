@@ -1,7 +1,12 @@
 import { internal } from "../_generated/api";
 import { getCircuitConfig } from "./reliabilityConfig";
 
-export type CircuitProvider = "openrouter_chat" | "serper_search" | "gmail_oauth";
+export type CircuitProvider =
+  | "openrouter_chat"
+  | "serper_search"
+  | "gmail_oauth"
+  | "ebay_search"
+  | "global_search";
 
 export class CircuitOpenError extends Error {
   provider: CircuitProvider;
@@ -20,7 +25,8 @@ export class CircuitOpenError extends Error {
 
 export function classifyResponseStatus(status: number) {
   if (status >= 200 && status < 400) return "success" as const;
-  if (status === 408 || status === 425 || status === 429 || status >= 500) {
+  if (status === 429) return "neutral" as const;
+  if (status === 408 || status === 425 || status >= 500) {
     return "failure" as const;
   }
   return "neutral" as const;
@@ -31,10 +37,7 @@ function errorToString(error: unknown) {
   return String(error ?? "Unknown error");
 }
 
-export async function assertCircuitClosed(
-  ctx: any,
-  provider: CircuitProvider,
-) {
+export async function assertCircuitClosed(ctx: any, provider: CircuitProvider) {
   const gate = await ctx.runMutation(internal.circuitBreaker.checkGate, {
     provider,
   });

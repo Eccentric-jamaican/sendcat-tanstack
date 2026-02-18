@@ -14,11 +14,11 @@ This runbook covers Sendcat reliability operations for:
 
 These thresholds are the operational baseline for incident detection and release checks.
 
-| Endpoint | p95 latency | 5xx rate | network error rate | unknown status rate | Allowed statuses |
-| --- | --- | --- | --- | --- | --- |
-| `/api/chat` | `<= 12000ms` | `<= 5%` | `<= 5%` | `<= 10%` | `200, 401, 429, 503` |
-| `/api/gmail/push` | `<= 1500ms` | `<= 1%` | `<= 2%` | `<= 5%` | `200, 400, 403, 429` |
-| `/api/whatsapp/webhook` | `<= 1500ms` | `<= 1%` | `<= 2%` | `<= 5%` | `200, 400, 403, 429` |
+| Endpoint                | p95 latency  | 5xx rate | network error rate | unknown status rate | Allowed statuses     |
+| ----------------------- | ------------ | -------- | ------------------ | ------------------- | -------------------- |
+| `/api/chat`             | `<= 12000ms` | `<= 5%`  | `<= 5%`            | `<= 10%`            | `200, 401, 429, 503` |
+| `/api/gmail/push`       | `<= 1500ms`  | `<= 1%`  | `<= 2%`            | `<= 5%`             | `200, 400, 403, 429` |
+| `/api/whatsapp/webhook` | `<= 1500ms`  | `<= 1%`  | `<= 2%`            | `<= 5%`             | `200, 400, 403, 429` |
 
 Machine-readable copy: `scripts/reliability/slo-baseline.json`.
 
@@ -98,10 +98,12 @@ npx convex run toolCache:clearNamespace '{"namespace":"search_products_v1"}'
 ### A) Rate-limit pressure spike
 
 Signal:
+
 - high `blocked` or `contention_fallback` in `rateLimit:getEventSummary`
 - Sentry warnings from `convex.rateLimit.monitor`
 
 Actions:
+
 1. Confirm endpoint and bucket with highest pressure.
 2. If traffic is abusive, keep limits in place and monitor.
 3. If traffic is legitimate and sustained, tune env knobs by small increments:
@@ -113,11 +115,13 @@ Actions:
 ### B) Circuit opens (upstream instability)
 
 Signal:
+
 - open state in `circuitBreaker:listStatuses`
 - increased fallback responses in chat/tool paths
 
 Actions:
-1. Identify provider (`openrouter_chat`, `serper_search`, `gmail_oauth`).
+
+1. Identify provider (`openrouter_chat`, `serper_search`, `gmail_oauth`, `ebay_search`, `global_search`).
 2. Check provider status and token/quota validity.
 3. Keep circuit protection enabled; do not bypass.
 4. If flapping, increase `CIRCUIT_*_COOLDOWN_MS` first, then retest.
@@ -125,10 +129,12 @@ Actions:
 ### C) Bulkhead saturation
 
 Signal:
+
 - high active leases in `bulkhead:listInFlightByProvider`
 - `503` with `Retry-After` or degraded tool responses
 
 Actions:
+
 1. Confirm saturation is real and sustained (not a short spike).
 2. Increase `BULKHEAD_*_MAX_CONCURRENT` conservatively (<= 20% per change).
 3. Keep `BULKHEAD_*_LEASE_TTL_MS` aligned to realistic call durations.
@@ -137,10 +143,12 @@ Actions:
 ### D) Webhook replay surge
 
 Signal:
+
 - rising duplicate hits in snapshot replay section
 - high `hitCount` in `idempotency:listRecentByScope`
 
 Actions:
+
 1. Confirm source scope (`gmail_push_history` or `whatsapp_message`).
 2. Keep idempotency enabled; do not disable dedupe.
 3. Verify provider retries are expected (ack timing, auth failures, upstream errors).
@@ -149,10 +157,12 @@ Actions:
 ### E) Stale/incorrect cached tool results
 
 Signal:
+
 - repeated stale search/product outputs despite successful upstream recovery
 - snapshot `toolCache.byNamespace` shows sustained active entries in impacted namespace
 
 Actions:
+
 1. Invalidate the impacted namespace:
    - `toolCache:clearNamespace`
 2. If this should persist across deploys, bump namespace versions:
@@ -163,11 +173,13 @@ Actions:
 ### F) Tool queue backlog / worker starvation
 
 Signal:
+
 - snapshot `toolJobs.byStatus.queued` rising and not draining
 - `toolJobs.oldestQueuedAgeMs` increasing across snapshots
 - chat tool responses degraded to queued/timeout text
 
 Actions:
+
 1. Confirm worker saturation vs upstream failure:
    - check `bulkheads.inFlightByProvider.tool_job_worker`
    - check circuit states for `serper_search` and `openrouter_chat` if related
@@ -182,11 +194,11 @@ Actions:
    - `TOOL_JOB_QMAX_WEB`
    - `TOOL_JOB_QMAX_PROD`
    - `TOOL_JOB_QMAX_GLOB`
-3. Tune lease/poll windows if jobs are frequently timing out:
+4. Tune lease/poll windows if jobs are frequently timing out:
    - `TOOL_JOB_LEASE_MS`
    - `TOOL_JOB_WAIT_MS`
    - `TOOL_JOB_POLL_MS`
-4. Re-run quick drill and compare snapshots before/after.
+5. Re-run quick drill and compare snapshots before/after.
 
 ## Release Gate Procedure
 

@@ -1,4 +1,5 @@
 import { internal } from "../_generated/api";
+import { fetchWithRetry } from "./network";
 import {
   getBulkheadConfig,
   getBulkheadSentryCooldownMs,
@@ -8,6 +9,8 @@ export type BulkheadProvider =
   | "openrouter_chat"
   | "serper_search"
   | "gmail_oauth"
+  | "ebay_search"
+  | "global_search"
   | "tool_job_worker";
 
 export class BulkheadSaturatedError extends Error {
@@ -34,10 +37,15 @@ export class BulkheadSaturatedError extends Error {
   }
 }
 
+// Best-effort local cooldown only. Convex action runtimes are distributed, so this
+// map is not shared across instances and may still emit duplicate events at scale.
 const lastSentryAtByProvider = new Map<string, number>();
 
 function createLeaseId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `lease_${Math.random().toString(16).slice(2)}_${Date.now()}`;
@@ -100,15 +108,26 @@ async function sendSentryBulkheadEvent(input: {
     `${JSON.stringify({ type: "event" })}\n` +
     `${JSON.stringify(payload)}`;
 
-  const response = await fetch(parsed.endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-sentry-envelope",
-    },
-    body: envelope,
-  });
-
-  return response.ok;
+  try {
+    const response = await fetchWithRetry(
+      parsed.endpoint,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-sentry-envelope",
+        },
+        body: envelope,
+      },
+      {
+        timeoutMs: 1_500,
+        retries: 0,
+        retryOnNetworkError: false,
+      },
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function maybeSendBulkheadSentryEvent(input: {
@@ -154,7 +173,7 @@ export async function acquireBulkheadSlot(
     });
 
     if (!result.acquired) {
-      await maybeSendBulkheadSentryEvent({
+      void maybeSendBulkheadSentryEvent({
         provider,
         inFlight: result.inFlight,
         maxConcurrent: config.maxConcurrent,

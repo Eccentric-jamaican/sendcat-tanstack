@@ -2,7 +2,12 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { authComponent, createAuth } from "./auth";
-import { encrypt, decrypt, hmacSha256Hex, timingSafeEqual } from "./integrations/crypto";
+import {
+  encrypt,
+  decrypt,
+  hmacSha256Hex,
+  timingSafeEqual,
+} from "./integrations/crypto";
 import { chatHandler } from "./chatHttp";
 import { fetchWithRetry } from "./lib/network";
 import {
@@ -38,11 +43,7 @@ const http = httpRouter();
 // Falls back to localhost for development
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
-  : [
-      "http://localhost:3000",
-      "http://localhost:3100",
-      "http://localhost:5173",
-    ];
+  : ["http://localhost:3000", "http://localhost:3100", "http://localhost:5173"];
 
 const GMAIL_PUSH_REPLAY_TTL_MS = 24 * 60 * 60 * 1000;
 const WHATSAPP_MESSAGE_REPLAY_TTL_MS = 3 * 24 * 60 * 60 * 1000;
@@ -452,13 +453,10 @@ export async function gmailOAuthCallbackHandler(ctx: any, request: Request) {
     const profile = await profileResponse.json();
 
     if (!profile.emailAddress || !profile.historyId) {
-      console.error(
-        "[Gmail OAuth] Profile response missing required fields:",
-        {
-          hasEmail: !!profile.emailAddress,
-          hasHistoryId: !!profile.historyId,
-        },
-      );
+      console.error("[Gmail OAuth] Profile response missing required fields:", {
+        hasEmail: !!profile.emailAddress,
+        hasHistoryId: !!profile.historyId,
+      });
       return Response.redirect(
         `${frontendUrl}/settings?tab=connections&gmail=error`,
         302,
@@ -544,13 +542,11 @@ export async function gmailPushHandler(ctx: any, request: Request) {
       const headerToken =
         request.headers.get("x-pubsub-token") ||
         request.headers.get("x-gmail-pubsub-token") ||
-        request.headers
-          .get("authorization")
-          ?.replace(/^Bearer\s+/i, "") ||
+        request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
         null;
       const queryToken = url.searchParams.get("token");
       const token = headerToken ?? queryToken ?? "";
-      if (token !== expectedToken) {
+      if (!timingSafeEqual(token, expectedToken)) {
         return createHttpErrorResponse({
           status: 403,
           code: "forbidden",
@@ -650,7 +646,17 @@ export async function whatsappWebhookVerifyHandler(
   const token = url.searchParams.get("hub.verify_token");
   const challenge = url.searchParams.get("hub.challenge");
 
-  if (modeValue === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+  if (
+    modeValue === "subscribe" &&
+    token === process.env.WHATSAPP_VERIFY_TOKEN
+  ) {
+    if (!challenge) {
+      return createHttpErrorResponse({
+        status: 400,
+        code: "invalid_request",
+        message: "Missing hub.challenge",
+      });
+    }
     return new Response(challenge, { status: 200 });
   }
   return createHttpErrorResponse({

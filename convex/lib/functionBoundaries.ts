@@ -23,7 +23,7 @@ export function assertFunctionArgs<T>(
 
 export const gmailStoreConnectionArgsSchema = z.object({
   userId: z.string().min(1).max(256),
-  email: z.string().email(),
+  email: z.email(),
   encryptedRefreshToken: z.string().min(1),
   accessToken: z.string().min(1),
   accessTokenExpiresAt: z.number().int().positive(),
@@ -38,59 +38,50 @@ export const syncGmailArgsSchema = z.object({
 });
 
 export const incrementalSyncArgsSchema = z.object({
-  emailAddress: z.string().email(),
+  emailAddress: z.email(),
   newHistoryId: z.string().min(1).max(256),
 });
 
-const whatsappMessageSchema = z
-  .object({
-    id: z.string().min(1).optional(),
-    from: z.string().min(1).optional(),
-    timestamp: z.string().optional(),
-    type: z.string().min(1),
-    text: z
-      .object({
-        body: z.string().optional(),
-      })
-      .optional(),
-    image: z
-      .object({
-        id: z.string().min(1),
-        caption: z.string().optional(),
-      })
-      .optional(),
-    document: z
-      .object({
-        id: z.string().min(1),
-        caption: z.string().optional(),
-        filename: z.string().optional(),
-      })
-      .optional(),
-  })
-  .passthrough();
+const whatsappMessageSchema = z.looseObject({
+  id: z.string().min(1).optional(),
+  from: z.string().min(1).optional(),
+  timestamp: z.string().optional(),
+  type: z.string().min(1),
+  text: z
+    .object({
+      body: z.string().optional(),
+    })
+    .optional(),
+  image: z
+    .object({
+      id: z.string().min(1),
+      caption: z.string().optional(),
+    })
+    .optional(),
+  document: z
+    .object({
+      id: z.string().min(1),
+      caption: z.string().optional(),
+      filename: z.string().optional(),
+    })
+    .optional(),
+});
 
-const whatsappChangeSchema = z
-  .object({
-    field: z.string().min(1),
-    value: z
-      .object({
-        messages: z.array(whatsappMessageSchema).optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough();
+const whatsappChangeSchema = z.looseObject({
+  field: z.string().min(1),
+  value: z
+    .looseObject({
+      messages: z.array(whatsappMessageSchema).optional(),
+    })
+    .optional(),
+});
 
-const whatsappEntrySchema = z
-  .object({
-    changes: z.array(whatsappChangeSchema).default([]),
-  })
-  .passthrough();
+const whatsappEntrySchema = z.looseObject({
+  changes: z.array(whatsappChangeSchema).default([]),
+});
 
 export const processWhatsappWebhookArgsSchema = z.object({
-  payload: z
-    .object({
-      entry: z.array(whatsappEntrySchema).default([]),
-    })
-    .passthrough(),
+  payload: z.looseObject({
+    entry: z.array(whatsappEntrySchema).default([]),
+  }),
 });

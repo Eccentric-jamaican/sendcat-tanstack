@@ -54,17 +54,19 @@ export async function fetchWithRetry(
   let attempt = 0;
   while (true) {
     try {
-      const response = await fetchWithTimeout(
-        input,
-        init,
-        config.timeoutMs,
-      );
+      const response = await fetchWithTimeout(input, init, config.timeoutMs);
       if (
         response.ok ||
         !config.retryOnStatuses.includes(response.status) ||
         attempt >= config.retries
       ) {
         return response;
+      }
+      // Ensure the underlying connection is released before retrying.
+      try {
+        await response.body?.cancel();
+      } catch {
+        // Ignore cancellation errors and continue retry flow.
       }
     } catch (error) {
       if (!config.retryOnNetworkError || attempt >= config.retries) {
@@ -80,4 +82,3 @@ export async function fetchWithRetry(
     await sleep(withJitter(delay));
   }
 }
-

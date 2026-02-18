@@ -2,16 +2,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
-
-function parseArgs(argv) {
-  const out = new Map();
-  for (const arg of argv) {
-    if (!arg.startsWith("--")) continue;
-    const [rawKey, rawValue] = arg.slice(2).split("=");
-    out.set(rawKey, rawValue ?? "true");
-  }
-  return out;
-}
+import { parseArgs } from "./parseArgs.mjs";
 
 function toNumber(value, fallback) {
   const parsed = Number(value);
@@ -29,10 +20,12 @@ function extractReportPath(output) {
 
 function calculateRates(summary, allowedStatuses) {
   const total = Math.max(summary.totalRequests || 0, 1);
-  const statuses = Object.entries(summary.statuses || {}).map(([status, count]) => ({
-    status: Number(status),
-    count: Number(count),
-  }));
+  const statuses = Object.entries(summary.statuses || {}).map(
+    ([status, count]) => ({
+      status: Number(status),
+      count: Number(count),
+    }),
+  );
   const fiveXx = statuses
     .filter((item) => item.status >= 500)
     .reduce((sum, item) => sum + item.count, 0);
@@ -93,9 +86,10 @@ async function runNodeScript(scriptPath, args) {
 }
 
 async function runProbe(baseUrl) {
-  const run = await runNodeScript("scripts/reliability/run-synthetic-probes.mjs", [
-    `--base-url=${baseUrl}`,
-  ]);
+  const run = await runNodeScript(
+    "scripts/reliability/run-synthetic-probes.mjs",
+    [`--base-url=${baseUrl}`],
+  );
   if (run.code !== 0) {
     throw new Error(`Synthetic probes failed for ${baseUrl}`);
   }
@@ -211,9 +205,9 @@ async function main() {
   for (const [scenarioName, controlScenario] of controlScenarios.entries()) {
     const candidateScenario = candidateScenarios.get(scenarioName);
     if (!candidateScenario) continue;
-    const statusAllowList =
-      DEFAULT_ALLOWED_STATUSES_BY_SCENARIO[scenarioName] ||
-      [200, 400, 401, 403, 429, 503];
+    const statusAllowList = DEFAULT_ALLOWED_STATUSES_BY_SCENARIO[
+      scenarioName
+    ] || [200, 400, 401, 403, 429, 503];
     const controlRates = calculateRates(
       controlScenario.summary,
       statusAllowList,

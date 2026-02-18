@@ -1,5 +1,9 @@
 import { v } from "convex/values";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { fetchWithRetry } from "./lib/network";
@@ -54,14 +58,17 @@ function buildSearchWebTextResult(
   items: Array<{ title: string; link: string; snippet?: string }>,
 ) {
   const lines =
-    items.map((item, i) => `${i + 1}. ${item.title} - ${item.link}`).join("\n") ||
-    "No results found";
+    items
+      .map((item, i) => `${i + 1}. ${item.title} - ${item.link}`)
+      .join("\n") || "No results found";
   return `Search results for "${query}":\n\n${lines}`;
 }
 
 function buildProductSummary(products: Array<{ source?: string }>) {
   const ebayCount = products.filter((item) => item.source === "ebay").length;
-  const globalCount = products.filter((item) => item.source === "global").length;
+  const globalCount = products.filter(
+    (item) => item.source === "global",
+  ).length;
   const parts: string[] = [];
   if (ebayCount > 0) parts.push(`${ebayCount} eBay items`);
   if (globalCount > 0) parts.push(`${globalCount} global items`);
@@ -69,7 +76,48 @@ function buildProductSummary(products: Array<{ source?: string }>) {
   return `Found ${parts.join(" and ")}. They have been displayed to the user.`;
 }
 
-async function executeSearchWebJob(ctx: any, input: any): Promise<ToolJobResult> {
+async function searchEbayItemsProtected(
+  ctx: any,
+  query: string,
+  options: Parameters<typeof searchEbayItems>[1],
+) {
+  const lease = await acquireBulkheadSlot(ctx, "ebay_search");
+  try {
+    await assertCircuitClosed(ctx, "ebay_search");
+    const items = await searchEbayItems(query, options);
+    await recordCircuitResponse(ctx, "ebay_search", 200);
+    return items;
+  } catch (error) {
+    await recordCircuitError(ctx, "ebay_search", error);
+    throw error;
+  } finally {
+    await releaseBulkheadSlot(ctx, "ebay_search", lease);
+  }
+}
+
+async function searchGlobalItemsProtected(
+  ctx: any,
+  query: string,
+  options: Parameters<typeof searchGlobalItems>[1],
+) {
+  const lease = await acquireBulkheadSlot(ctx, "global_search");
+  try {
+    await assertCircuitClosed(ctx, "global_search");
+    const items = await searchGlobalItems(query, options);
+    await recordCircuitResponse(ctx, "global_search", 200);
+    return items;
+  } catch (error) {
+    await recordCircuitError(ctx, "global_search", error);
+    throw error;
+  } finally {
+    await releaseBulkheadSlot(ctx, "global_search", lease);
+  }
+}
+
+async function executeSearchWebJob(
+  ctx: any,
+  input: any,
+): Promise<ToolJobResult> {
   const query = typeof input?.query === "string" ? input.query.trim() : "";
   if (!query) {
     throw new Error("Missing search query");
@@ -101,7 +149,9 @@ async function executeSearchWebJob(ctx: any, input: any): Promise<ToolJobResult>
     await recordCircuitResponse(ctx, "serper_search", response.status);
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`Serper API error: ${response.status} ${body.slice(0, 120)}`);
+      throw new Error(
+        `Serper API error: ${response.status} ${body.slice(0, 120)}`,
+      );
     }
     const data = await response.json();
     const searchResults = Array.isArray(data?.organic)
@@ -126,7 +176,10 @@ async function executeSearchWebJob(ctx: any, input: any): Promise<ToolJobResult>
   }
 }
 
-async function executeProductSearchJob(ctx: any, input: any): Promise<ToolJobResult> {
+async function executeProductSearchJob(
+  ctx: any,
+  input: any,
+): Promise<ToolJobResult> {
   const normalized = normalizeEbaySearchArgs(input ?? {});
   if (!normalized.query) {
     throw new Error("Missing product search query");
@@ -149,10 +202,12 @@ async function executeProductSearchJob(ctx: any, input: any): Promise<ToolJobRes
 
   const includeGlobal = input?.includeGlobal !== false;
   const requestedGlobalLimit =
-    typeof input?.globalLimit === "number" ? input.globalLimit : normalized.limit;
+    typeof input?.globalLimit === "number"
+      ? input.globalLimit
+      : normalized.limit;
   const globalLimit = Math.min(12, requestedGlobalLimit ?? 12);
   const [ebayResult, globalResult] = await Promise.allSettled([
-    searchEbayItems(normalized.query, {
+    searchEbayItemsProtected(ctx, normalized.query, {
       limit: normalized.limit,
       categoryId,
       minPrice: normalized.minPrice,
@@ -164,7 +219,7 @@ async function executeProductSearchJob(ctx: any, input: any): Promise<ToolJobRes
       marketplaceId,
     }),
     includeGlobal
-      ? searchGlobalItems(normalized.query, {
+      ? searchGlobalItemsProtected(ctx, normalized.query, {
           limit: globalLimit,
           location: normalized.location,
         })
@@ -172,7 +227,8 @@ async function executeProductSearchJob(ctx: any, input: any): Promise<ToolJobRes
   ]);
 
   const ebayItems = ebayResult.status === "fulfilled" ? ebayResult.value : [];
-  const globalItems = globalResult.status === "fulfilled" ? globalResult.value : [];
+  const globalItems =
+    globalResult.status === "fulfilled" ? globalResult.value : [];
   const combined = dedupeProducts([...ebayItems, ...globalItems]);
 
   return {
@@ -182,14 +238,18 @@ async function executeProductSearchJob(ctx: any, input: any): Promise<ToolJobRes
   };
 }
 
-async function executeGlobalSearchJob(input: any): Promise<ToolJobResult> {
+async function executeGlobalSearchJob(
+  ctx: any,
+  input: any,
+): Promise<ToolJobResult> {
   const query = typeof input?.query === "string" ? input.query.trim() : "";
   if (!query) {
     throw new Error("Missing global search query");
   }
   const limit = typeof input?.limit === "number" ? input.limit : 12;
-  const location = typeof input?.location === "string" ? input.location : undefined;
-  const products = await searchGlobalItems(query, {
+  const location =
+    typeof input?.location === "string" ? input.location : undefined;
+  const products = await searchGlobalItemsProtected(ctx, query, {
     limit,
     location,
   });
@@ -200,7 +260,11 @@ async function executeGlobalSearchJob(input: any): Promise<ToolJobResult> {
   };
 }
 
-async function executeToolJob(ctx: any, toolName: ToolJobName, argsJson: string) {
+async function executeToolJob(
+  ctx: any,
+  toolName: ToolJobName,
+  argsJson: string,
+) {
   let parsed: any;
   try {
     parsed = JSON.parse(argsJson || "{}");
@@ -214,7 +278,7 @@ async function executeToolJob(ctx: any, toolName: ToolJobName, argsJson: string)
     case "search_products":
       return await executeProductSearchJob(ctx, parsed);
     case "search_global":
-      return await executeGlobalSearchJob(parsed);
+      return await executeGlobalSearchJob(ctx, parsed);
     default:
       throw new Error(`Unsupported tool job: ${toolName}`);
   }
@@ -236,7 +300,10 @@ export const enqueue = internalMutation({
     const queuedForTool = await ctx.db
       .query("toolJobs")
       .withIndex("by_tool_status_available", (q) =>
-        q.eq("toolName", args.toolName).eq("status", "queued").gte("availableAt", 0),
+        q
+          .eq("toolName", args.toolName)
+          .eq("status", "queued")
+          .gte("availableAt", 0),
       )
       .take(maxQueuedForTool + 1);
     if (queuedForTool.length >= maxQueuedForTool) {
@@ -384,7 +451,8 @@ export const fail = internalMutation({
     const config = getToolJobConfig();
     const job = await ctx.db.get(args.jobId);
     if (!job) return { ok: false, status: "missing" as const };
-    if (job.status !== "running") return { ok: false, status: "not_running" as const };
+    if (job.status !== "running")
+      return { ok: false, status: "not_running" as const };
 
     const now = Date.now();
     const retryDelayMs = Math.min(
@@ -459,7 +527,9 @@ export const processQueue = internalAction({
           processed.push({ jobId, status: "completed" });
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : String(error ?? "Unknown error");
+            error instanceof Error
+              ? error.message
+              : String(error ?? "Unknown error");
           const failResult = await ctx.runMutation(internal.toolJobs.fail, {
             jobId,
             error: message,

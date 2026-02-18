@@ -5,11 +5,18 @@ type RateLimitKey =
   | "gmailOAuthCallback"
   | "whatsappLinkingCode";
 
-type CircuitProvider = "openrouter_chat" | "serper_search" | "gmail_oauth";
+type CircuitProvider =
+  | "openrouter_chat"
+  | "serper_search"
+  | "gmail_oauth"
+  | "ebay_search"
+  | "global_search";
 type BulkheadProvider =
   | "openrouter_chat"
   | "serper_search"
   | "gmail_oauth"
+  | "ebay_search"
+  | "global_search"
   | "tool_job_worker";
 
 type RateLimitConfig = Record<
@@ -95,6 +102,14 @@ const DEFAULT_CIRCUITS: CircuitConfig = {
     threshold: 4,
     cooldownMs: 120_000,
   },
+  ebay_search: {
+    threshold: 4,
+    cooldownMs: 120_000,
+  },
+  global_search: {
+    threshold: 4,
+    cooldownMs: 120_000,
+  },
 };
 
 const DEFAULT_BULKHEADS: BulkheadConfig = {
@@ -108,6 +123,14 @@ const DEFAULT_BULKHEADS: BulkheadConfig = {
   },
   gmail_oauth: {
     maxConcurrent: 8,
+    leaseTtlMs: 60 * 1000,
+  },
+  ebay_search: {
+    maxConcurrent: 8,
+    leaseTtlMs: 60 * 1000,
+  },
+  global_search: {
+    maxConcurrent: 10,
     leaseTtlMs: 60 * 1000,
   },
   tool_job_worker: {
@@ -257,6 +280,34 @@ export function getCircuitConfig(): CircuitConfig {
         60 * 60 * 1000,
       ),
     },
+    ebay_search: {
+      threshold: parsePositiveInt(
+        process.env.CIRCUIT_EBAY_THRESHOLD,
+        DEFAULT_CIRCUITS.ebay_search.threshold,
+        1,
+        100,
+      ),
+      cooldownMs: parsePositiveInt(
+        process.env.CIRCUIT_EBAY_COOLDOWN_MS,
+        DEFAULT_CIRCUITS.ebay_search.cooldownMs,
+        1000,
+        60 * 60 * 1000,
+      ),
+    },
+    global_search: {
+      threshold: parsePositiveInt(
+        process.env.CIRCUIT_GLOBAL_SEARCH_THRESHOLD,
+        DEFAULT_CIRCUITS.global_search.threshold,
+        1,
+        100,
+      ),
+      cooldownMs: parsePositiveInt(
+        process.env.CIRCUIT_GLOBAL_SEARCH_COOLDOWN_MS,
+        DEFAULT_CIRCUITS.global_search.cooldownMs,
+        1000,
+        60 * 60 * 1000,
+      ),
+    },
   };
 }
 
@@ -300,6 +351,34 @@ export function getBulkheadConfig(): BulkheadConfig {
       leaseTtlMs: parsePositiveInt(
         process.env.BULKHEAD_GMAIL_OAUTH_LEASE_TTL_MS,
         DEFAULT_BULKHEADS.gmail_oauth.leaseTtlMs,
+        15_000,
+        60 * 60 * 1000,
+      ),
+    },
+    ebay_search: {
+      maxConcurrent: parsePositiveInt(
+        process.env.BULKHEAD_EBAY_MAX_CONCURRENT,
+        DEFAULT_BULKHEADS.ebay_search.maxConcurrent,
+        1,
+        500,
+      ),
+      leaseTtlMs: parsePositiveInt(
+        process.env.BULKHEAD_EBAY_LEASE_TTL_MS,
+        DEFAULT_BULKHEADS.ebay_search.leaseTtlMs,
+        15_000,
+        60 * 60 * 1000,
+      ),
+    },
+    global_search: {
+      maxConcurrent: parsePositiveInt(
+        process.env.BULKHEAD_GLOBAL_SEARCH_MAX_CONCURRENT,
+        DEFAULT_BULKHEADS.global_search.maxConcurrent,
+        1,
+        500,
+      ),
+      leaseTtlMs: parsePositiveInt(
+        process.env.BULKHEAD_GLOBAL_SEARCH_LEASE_TTL_MS,
+        DEFAULT_BULKHEADS.global_search.leaseTtlMs,
         15_000,
         60 * 60 * 1000,
       ),
@@ -382,12 +461,7 @@ export function getToolCacheNamespaces(): ToolCacheNamespaces {
 
 export function getToolJobConfig(): ToolJobConfig {
   return {
-    maxJobsPerRun: parsePositiveInt(
-      process.env.TOOL_JOB_MAX_PER_RUN,
-      3,
-      1,
-      20,
-    ),
+    maxJobsPerRun: parsePositiveInt(process.env.TOOL_JOB_MAX_PER_RUN, 3, 1, 20),
     leaseMs: parsePositiveInt(
       process.env.TOOL_JOB_LEASE_MS,
       45_000,
@@ -406,12 +480,7 @@ export function getToolJobConfig(): ToolJobConfig {
       50,
       5_000,
     ),
-    maxAttempts: parsePositiveInt(
-      process.env.TOOL_JOB_MAX_ATTEMPTS,
-      2,
-      1,
-      10,
-    ),
+    maxAttempts: parsePositiveInt(process.env.TOOL_JOB_MAX_ATTEMPTS, 2, 1, 10),
     retryBaseMs: parsePositiveInt(
       process.env.TOOL_JOB_RETRY_BASE_MS,
       1_000,
@@ -431,12 +500,7 @@ export function getToolJobConfig(): ToolJobConfig {
       2000,
     ),
     maxRunningByTool: {
-      search_web: parsePositiveInt(
-        process.env.TOOL_JOB_RUNMAX_WEB,
-        2,
-        1,
-        100,
-      ),
+      search_web: parsePositiveInt(process.env.TOOL_JOB_RUNMAX_WEB, 2, 1, 100),
       search_products: parsePositiveInt(
         process.env.TOOL_JOB_RUNMAX_PROD,
         2,

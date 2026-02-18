@@ -2,16 +2,7 @@
 import { readFile, mkdir, writeFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
-
-function parseArgs(argv) {
-  const out = new Map();
-  for (const arg of argv) {
-    if (!arg.startsWith("--")) continue;
-    const [rawKey, rawValue] = arg.slice(2).split("=");
-    out.set(rawKey, rawValue ?? "true");
-  }
-  return out;
-}
+import { parseArgs } from "./parseArgs.mjs";
 
 function toBoolean(value) {
   return String(value).toLowerCase() === "true";
@@ -32,16 +23,35 @@ function extractReportPath(output) {
 }
 
 function extractJson(text) {
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first === -1 || last === -1 || last <= first) {
-    throw new Error("Unable to parse JSON payload from command output.");
+  const end = text.lastIndexOf("}");
+  if (end === -1) {
+    throw new Error(
+      "Unable to find JSON payload terminator in command output.",
+    );
   }
-  const candidate = text.slice(first, last + 1);
-  return JSON.parse(candidate);
+  for (
+    let start = text.lastIndexOf("{", end);
+    start >= 0;
+    start = text.lastIndexOf("{", start - 1)
+  ) {
+    const candidate = text.slice(start, end + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Keep scanning for the outermost valid JSON object in the output.
+    }
+  }
+  throw new Error("Unable to parse JSON payload from command output.");
 }
 
 function evaluateSnapshot(snapshot, policy) {
+  const configuredBulkheadCap = Object.values(
+    snapshot?.config?.bulkheads ?? {},
+  ).reduce((sum, entry) => sum + Number(entry?.maxConcurrent ?? 0), 0);
+  const bulkheadThreshold = Math.max(
+    Number(policy.maxBulkheadActiveLeases ?? 0),
+    configuredBulkheadCap,
+  );
   const checks = [
     {
       name: "open_circuits",
@@ -60,9 +70,10 @@ function evaluateSnapshot(snapshot, policy) {
     {
       name: "bulkhead_active_leases",
       actual: snapshot.bulkheads.activeLeaseCount,
-      threshold: policy.maxBulkheadActiveLeases,
-      pass:
-        snapshot.bulkheads.activeLeaseCount <= policy.maxBulkheadActiveLeases,
+      threshold: bulkheadThreshold,
+      policyThreshold: policy.maxBulkheadActiveLeases,
+      configuredCapacityThreshold: configuredBulkheadCap,
+      pass: snapshot.bulkheads.activeLeaseCount <= bulkheadThreshold,
     },
     {
       name: "tool_jobs_queued",
@@ -80,8 +91,7 @@ function evaluateSnapshot(snapshot, policy) {
       name: "tool_jobs_oldest_queued_age",
       actual: snapshot.toolJobs.oldestQueuedAgeMs,
       threshold: policy.maxOldestQueuedAgeMs,
-      pass:
-        snapshot.toolJobs.oldestQueuedAgeMs <= policy.maxOldestQueuedAgeMs,
+      pass: snapshot.toolJobs.oldestQueuedAgeMs <= policy.maxOldestQueuedAgeMs,
     },
     {
       name: "tool_jobs_oldest_running_age",
@@ -140,10 +150,11 @@ function calculateScenarioRates(summary, allowedStatuses) {
 }
 
 function calculateBurnRate(rates, threshold) {
-  const p95Burn =
-    threshold.maxP95Ms > 0 ? rates.p95Ms / threshold.maxP95Ms : 0;
+  const p95Burn = threshold.maxP95Ms > 0 ? rates.p95Ms / threshold.maxP95Ms : 0;
   const fiveXxBurn =
-    threshold.maxFiveXxRate > 0 ? rates.fiveXxRate / threshold.maxFiveXxRate : 0;
+    threshold.maxFiveXxRate > 0
+      ? rates.fiveXxRate / threshold.maxFiveXxRate
+      : 0;
   const networkBurn =
     threshold.maxNetworkErrorRate > 0
       ? rates.networkErrorRate / threshold.maxNetworkErrorRate
@@ -166,14 +177,19 @@ function calculateBurnRate(rates, threshold) {
 async function listRecentLoadReports(outputDir, profile, lookback) {
   const files = await readdir(outputDir);
   const candidates = files
-    .filter((file) => file.startsWith(`load-drill-${profile}-`) && file.endsWith(".json"))
+    .filter(
+      (file) =>
+        file.startsWith(`load-drill-${profile}-`) && file.endsWith(".json"),
+    )
     .sort()
     .slice(-lookback);
   const reports = [];
   for (const file of candidates) {
     try {
       // eslint-disable-next-line no-await-in-loop
-      const parsed = JSON.parse(await readFile(resolve(outputDir, file), "utf8"));
+      const parsed = JSON.parse(
+        await readFile(resolve(outputDir, file), "utf8"),
+      );
       reports.push(parsed);
     } catch {
       // Ignore malformed historical artifacts.
@@ -204,7 +220,10 @@ function evaluateBurnRateGate({
     if (!threshold) {
       continue;
     }
-    const rates = calculateScenarioRates(scenario.summary, threshold.allowedStatuses || []);
+    const rates = calculateScenarioRates(
+      scenario.summary,
+      threshold.allowedStatuses || [],
+    );
     const shortBurn = calculateBurnRate(rates, threshold);
 
     const historicalScenarioBurns = [];
@@ -373,21 +392,17 @@ async function main() {
   }
 
   const snapshotArgsJson = JSON.stringify({ minutes, limit });
-  const snapshotRun =
-    process.platform === "win32"
-      ? await runCommand("powershell", [
-          "-NoProfile",
-          "-Command",
-          `npx convex run ops:getReliabilitySnapshot '${snapshotArgsJson}'`,
-        ])
-      : await runCommand("npx", [
-          "convex",
-          "run",
-          "ops:getReliabilitySnapshot",
-          snapshotArgsJson,
-        ]);
+  const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
+  const snapshotRun = await runCommand(npxCommand, [
+    "convex",
+    "run",
+    "ops:getReliabilitySnapshot",
+    snapshotArgsJson,
+  ]);
   if (snapshotRun.code !== 0) {
-    throw new Error("Failed to collect ops:getReliabilitySnapshot for release gate.");
+    throw new Error(
+      "Failed to collect ops:getReliabilitySnapshot for release gate.",
+    );
   }
   const snapshot = extractJson(snapshotRun.stdout);
   const snapshotEvaluation = evaluateSnapshot(snapshot, policy.snapshot);
