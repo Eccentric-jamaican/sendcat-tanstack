@@ -225,6 +225,12 @@ export async function getEbayItemDetails(itemId: string) {
     },
   );
 
+  if (response.status === 404) {
+    // Missing/expired listings are expected in the wild; treat as a cacheable miss, not a server error.
+    console.warn(`[eBay Item Details] Item not found: ${itemId}`);
+    return null;
+  }
+
   if (!response.ok) {
     const errorBody = await response.text();
     const errorMessage = logEbayError(

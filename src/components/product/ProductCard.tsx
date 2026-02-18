@@ -6,10 +6,7 @@ import { useAction, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { cn } from "../../lib/utils";
 import { useEffect, useRef } from "react";
-import {
-  getProductImageFallback,
-  getProductImageUrl,
-} from "./productImage";
+import { getProductImageFallback, getProductImageUrl } from "./productImage";
 import { FavoriteListSelector } from "./FavoriteListSelector";
 import { trackProductView } from "../../lib/analytics";
 import { getOrSetProductDetails } from "../../lib/productDetailsCache";
@@ -37,8 +34,7 @@ export function ProductCard({ product }: ProductCardProps) {
     "Unknown merchant";
   const supplierLogo = product.supplier?.logo;
   const supplierLogoIsUrl =
-    typeof supplierLogo === "string" &&
-    /^(https?:)?\/\//i.test(supplierLogo);
+    typeof supplierLogo === "string" && /^(https?:)?\/\//i.test(supplierLogo);
   const merchantFavicon = product.merchantDomain
     ? `https://www.google.com/s2/favicons?domain=${product.merchantDomain}&sz=32`
     : null;
@@ -68,7 +64,8 @@ export function ProductCard({ product }: ProductCardProps) {
   const schedulePrefetch = () => {
     // Only prefetch for hover-capable devices to avoid wasted calls on mobile scroll.
     if (typeof window === "undefined") return;
-    if (window.matchMedia && !window.matchMedia("(hover: hover)").matches) return;
+    if (window.matchMedia && !window.matchMedia("(hover: hover)").matches)
+      return;
     if (product.source !== "ebay") return;
     if (!product.id) return;
 
@@ -76,6 +73,9 @@ export function ProductCard({ product }: ProductCardProps) {
     prefetchTimeoutRef.current = window.setTimeout(() => {
       void getOrSetProductDetails(product.id, async () => {
         const data = await getItemDetails({ itemId: product.id });
+        if (!data) {
+          throw new Error("Item details unavailable");
+        }
         return mapEbayItemDetailsToProduct(data) satisfies Product;
       }).catch(() => {});
     }, 150);
@@ -107,9 +107,9 @@ export function ProductCard({ product }: ProductCardProps) {
           handleClick();
         }
       }}
-      className="group block text-left w-full"
+      className="group block w-full text-left"
     >
-      <div className="flex flex-col gap-1.5 sm:gap-2 p-2 sm:p-3 rounded-xl transition-all duration-300 hover:bg-white/40 hover:shadow-sm">
+      <div className="flex flex-col gap-1.5 rounded-xl p-2 transition-all duration-300 hover:bg-white/40 hover:shadow-sm sm:gap-2 sm:p-3">
         {/* Image Container */}
         <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-gray-100">
           <motion.img
@@ -132,7 +132,7 @@ export function ProductCard({ product }: ProductCardProps) {
                 onClick={(event) => event.stopPropagation()}
                 onKeyDown={(event) => event.stopPropagation()}
                 className={cn(
-                  "absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 backdrop-blur-sm transition-all hover:bg-white hover:scale-110 shadow-sm",
+                  "absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 shadow-sm backdrop-blur-sm transition-all hover:scale-110 hover:bg-white",
                   isFavorited ? "text-primary" : "text-gray-400",
                 )}
               >
@@ -162,48 +162,55 @@ export function ProductCard({ product }: ProductCardProps) {
               )}
             </div>
           )}
-          
-          <h3 className="line-clamp-2 text-xs sm:text-sm font-medium text-gray-900 leading-snug group-hover:text-primary transition-colors">
+
+          <h3 className="line-clamp-2 text-xs leading-snug font-medium text-gray-900 transition-colors group-hover:text-primary sm:text-sm">
             {product.title}
           </h3>
 
-          <div className="mt-0.5 sm:mt-1 flex items-baseline gap-2">
-            <span className="text-sm sm:text-base font-bold text-gray-900">
+          <div className="mt-0.5 flex items-baseline gap-2 sm:mt-1">
+            <span className="text-sm font-bold text-gray-900 sm:text-base">
               {priceLabel}
             </span>
           </div>
-          
-          <span className="text-[10px] sm:text-xs text-gray-500">{product.moq}</span>
+
+          <span className="text-[10px] text-gray-500 sm:text-xs">
+            {product.moq}
+          </span>
 
           {/* Supplier/Seller Meta */}
-          <div className="mt-1.5 sm:mt-2 flex items-center gap-1.5 border-t border-gray-100 pt-1.5 sm:pt-2 text-[10px] sm:text-xs text-gray-500">
-             {merchantFavicon ? (
-               <img
-                 src={merchantFavicon}
-                 alt=""
-                 className="h-3.5 w-3.5 rounded-sm sm:h-4 sm:w-4"
-               />
-             ) : supplierLogoIsUrl ? (
-               <img
-                 src={supplierLogo}
-                 alt=""
-                 className="h-3.5 w-3.5 rounded-sm object-cover sm:h-4 sm:w-4"
-               />
-             ) : (
-               <div className="flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-gray-200 text-[9px] font-bold text-gray-600 sm:h-4 sm:w-4 sm:text-[10px]">
-                 {(typeof supplierLogo === "string" && !supplierLogoIsUrl
-                   ? supplierLogo
-                   : "") ||
-                   (merchantLabel?.charAt(0).toUpperCase() || "E")}
-               </div>
-             )}
-             <span className="truncate">{merchantLabel}</span>
-             {product.supplier && (
-                <span className="shrink-0 text-gray-400 hidden sm:inline">{product.supplier.country} {product.supplier.years}yrs</span>
-             )}
-             {product.sellerFeedback && (
-                <span className="shrink-0 text-t3-berry-deep font-semibold">{product.sellerFeedback} positive</span>
-             )}
+          <div className="mt-1.5 flex items-center gap-1.5 border-t border-gray-100 pt-1.5 text-[10px] text-gray-500 sm:mt-2 sm:pt-2 sm:text-xs">
+            {merchantFavicon ? (
+              <img
+                src={merchantFavicon}
+                alt=""
+                className="h-3.5 w-3.5 rounded-sm sm:h-4 sm:w-4"
+              />
+            ) : supplierLogoIsUrl ? (
+              <img
+                src={supplierLogo}
+                alt=""
+                className="h-3.5 w-3.5 rounded-sm object-cover sm:h-4 sm:w-4"
+              />
+            ) : (
+              <div className="flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-gray-200 text-[9px] font-bold text-gray-600 sm:h-4 sm:w-4 sm:text-[10px]">
+                {(typeof supplierLogo === "string" && !supplierLogoIsUrl
+                  ? supplierLogo
+                  : "") ||
+                  merchantLabel?.charAt(0).toUpperCase() ||
+                  "E"}
+              </div>
+            )}
+            <span className="truncate">{merchantLabel}</span>
+            {product.supplier && (
+              <span className="hidden shrink-0 text-gray-400 sm:inline">
+                {product.supplier.country} {product.supplier.years}yrs
+              </span>
+            )}
+            {product.sellerFeedback && (
+              <span className="shrink-0 font-semibold text-t3-berry-deep">
+                {product.sellerFeedback} positive
+              </span>
+            )}
           </div>
         </div>
       </div>

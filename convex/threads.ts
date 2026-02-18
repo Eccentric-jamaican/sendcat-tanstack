@@ -1,8 +1,18 @@
 import { v } from "convex/values";
-import { mutation, query, internalQuery, QueryCtx, MutationCtx } from "./_generated/server";
+import {
+  mutation,
+  query,
+  internalQuery,
+  QueryCtx,
+  MutationCtx,
+} from "./_generated/server";
 import { Id, Doc } from "./_generated/dataModel";
 import { getAuthUserId } from "./auth";
-import { requireAuthenticatedUserId, requireThreadAccess as enforceThreadAccess } from "./lib/authGuards";
+import {
+  requireAuthenticatedUserId,
+  requireThreadAccess as enforceThreadAccess,
+} from "./lib/authGuards";
+import { parseFunctionError } from "./lib/functionErrors";
 
 const isDebugMode = process.env.CONVEX_DEBUG_LOGS === "true";
 const shareTokenPrefix = "share_";
@@ -13,9 +23,7 @@ function generateShareToken() {
   if (cryptoObj?.randomUUID) {
     return cryptoObj.randomUUID();
   }
-  return `${Date.now()}_${Math.random()
-    .toString(36)
-    .slice(2, 12)}`;
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
 }
 
 /**
@@ -56,7 +64,7 @@ export const create = mutation({
     title: v.optional(v.string()),
     modelId: v.string(),
     parentThreadId: v.optional(v.id("threads")),
-    sessionId: v.string()
+    sessionId: v.string(),
   },
   handler: async (ctx, args) => {
     // Get authenticated user ID if available (JWT-only, no DB query)
@@ -90,13 +98,21 @@ export const create = mutation({
 export const get = query({
   args: { id: v.id("threads"), sessionId: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const { thread } = await verifyThreadAccess(
-      ctx,
-      args.id,
-      args.sessionId,
-      "threads.get",
-    );
-    return thread;
+    try {
+      const { thread } = await verifyThreadAccess(
+        ctx,
+        args.id,
+        args.sessionId,
+        "threads.get",
+      );
+      return thread;
+    } catch (error) {
+      const parsed = parseFunctionError(error);
+      if (parsed?.code === "not_found") {
+        return null;
+      }
+      throw error;
+    }
   },
 });
 
@@ -141,8 +157,8 @@ export const list = query({
 
     if (args.search) {
       const searchLower = args.search.toLowerCase();
-      threads = threads.filter(t =>
-        t.title?.toLowerCase().includes(searchLower)
+      threads = threads.filter((t) =>
+        t.title?.toLowerCase().includes(searchLower),
       );
     }
 
@@ -162,7 +178,9 @@ export const remove = mutation({
     await verifyThreadAccess(ctx, args.id, args.sessionId, "threads.remove");
 
     if (isDebugMode) {
-      console.log("[THREADS] remove - Authorized deletion:", { threadId: args.id });
+      console.log("[THREADS] remove - Authorized deletion:", {
+        threadId: args.id,
+      });
     }
 
     // Delete messages first
@@ -194,7 +212,11 @@ export const togglePinned = mutation({
 });
 
 export const rename = mutation({
-  args: { id: v.id("threads"), title: v.string(), sessionId: v.optional(v.string()) },
+  args: {
+    id: v.id("threads"),
+    title: v.string(),
+    sessionId: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     // Verify ownership before modifying
     await verifyThreadAccess(ctx, args.id, args.sessionId, "threads.rename");
@@ -249,7 +271,7 @@ export const createShareFork = mutation({
       shareEntry = await ctx.db
         .query("sharedThreads")
         .withIndex("by_share_token", (q) =>
-          q.eq("shareToken", `${shareTokenPrefix}${normalizedToken}`)
+          q.eq("shareToken", `${shareTokenPrefix}${normalizedToken}`),
         )
         .first();
     }
@@ -310,7 +332,10 @@ export const createShareFork = mutation({
 export const claimThreads = mutation({
   args: { sessionId: v.string() },
   handler: async (ctx, args) => {
-    const userId = await requireAuthenticatedUserId(ctx, "threads.claimThreads");
+    const userId = await requireAuthenticatedUserId(
+      ctx,
+      "threads.claimThreads",
+    );
 
     if (isDebugMode) {
       console.log("[THREADS] claimThreads - Auth state:", {

@@ -9,6 +9,7 @@ import {
 } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { requireMessageAccess, requireThreadAccess } from "./lib/authGuards";
+import { parseFunctionError } from "./lib/functionErrors";
 
 /**
  * Verify the current user has access to a thread.
@@ -41,7 +42,12 @@ export const list = query({
   args: { threadId: v.id("threads"), sessionId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     // Verify ownership before returning messages
-    await verifyThreadAccess(ctx, args.threadId, args.sessionId, "messages.list");
+    await verifyThreadAccess(
+      ctx,
+      args.threadId,
+      args.sessionId,
+      "messages.list",
+    );
 
     const messages = await ctx.db
       .query("messages")
@@ -105,7 +111,12 @@ export const send = mutation({
   },
   handler: async (ctx, args) => {
     // Verify ownership before sending message
-    await verifyThreadAccess(ctx, args.threadId, args.sessionId, "messages.send");
+    await verifyThreadAccess(
+      ctx,
+      args.threadId,
+      args.sessionId,
+      "messages.send",
+    );
 
     const { sessionId: _, ...messageData } = args;
     const messageId = await ctx.db.insert("messages", {
@@ -368,12 +379,20 @@ export const isThreadStreaming = query({
     if (!args.threadId) return false;
 
     // Verify ownership before checking streaming status
-    await verifyThreadAccess(
-      ctx,
-      args.threadId,
-      args.sessionId,
-      "messages.isThreadStreaming",
-    );
+    try {
+      await verifyThreadAccess(
+        ctx,
+        args.threadId,
+        args.sessionId,
+        "messages.isThreadStreaming",
+      );
+    } catch (error) {
+      const parsed = parseFunctionError(error);
+      if (parsed?.code === "not_found") {
+        return false;
+      }
+      throw error;
+    }
 
     const latest = await ctx.db
       .query("messages")
