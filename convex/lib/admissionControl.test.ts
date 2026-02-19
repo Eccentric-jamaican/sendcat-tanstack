@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   checkAndAcquireAdmission,
+  resolveAdmissionRetryAfterMs,
   releaseAdmission,
   type AdmissionCheckResult,
 } from "./admissionControl";
@@ -64,6 +65,10 @@ function createConfig(overrides?: Partial<AdmissionControlConfig>) {
     redisUrl: "https://redis.example.com",
     redisToken: "token",
     keyPrefix: "admit:test",
+    enforceUserInFlight: true,
+    enforceGlobalInFlight: true,
+    enforceGlobalMessageRate: true,
+    enforceGlobalToolRate: true,
     userMaxInFlight: 1,
     globalMaxInFlight: 5,
     globalMaxMessagesPerSecond: 10,
@@ -71,6 +76,8 @@ function createConfig(overrides?: Partial<AdmissionControlConfig>) {
     estimatedToolCallsPerMessage: 2,
     ticketTtlMs: 45_000,
     retryAfterMs: 1_000,
+    retryAfterJitterPct: 20,
+    allowedEventSamplePct: 5,
     ...overrides,
   } satisfies AdmissionControlConfig;
 }
@@ -160,6 +167,10 @@ describe("admissionControl", () => {
       allowed: false,
       reason: "global_msg_rate",
     });
+    if (second.mode === "enforce" && !second.allowed) {
+      expect(second.retryAfterMs).toBeGreaterThanOrEqual(800);
+      expect(second.retryAfterMs).toBeLessThanOrEqual(1200);
+    }
 
     await releaseAdmission({ ticket: firstTicket, config, redis: redis as any });
   });
@@ -189,6 +200,9 @@ describe("admissionControl", () => {
       wouldBlock: true,
       reason: "global_inflight",
     });
+    if (shadow.mode === "shadow") {
+      expect(shadow.wouldBlockReasons).toContain("global_inflight");
+    }
 
     await releaseAdmission({ ticket: firstTicket, config, redis: redis as any });
   });
@@ -206,5 +220,48 @@ describe("admissionControl", () => {
       allowed: false,
       reason: "redis_unavailable",
     });
+  });
+
+  test("skips blocking for disabled enforce dimensions while tracking soft-block reasons", async () => {
+    const redis = new FakeRedis();
+    const config = createConfig({
+      globalMaxMessagesPerSecond: 1,
+      enforceGlobalMessageRate: false,
+    });
+
+    const first = await checkAndAcquireAdmission({
+      principalKey: "user:1",
+      mode: "enforce",
+      config,
+      redis: redis as any,
+      nowMs: 1000,
+      randomFn: () => 0.5,
+    });
+    const firstTicket = assertEnforceSuccess(first);
+
+    const second = await checkAndAcquireAdmission({
+      principalKey: "user:2",
+      mode: "enforce",
+      config,
+      redis: redis as any,
+      nowMs: 1000,
+      randomFn: () => 0.5,
+    });
+
+    expect(second.mode).toBe("enforce");
+    expect(second.allowed).toBe(true);
+    if (second.mode === "enforce" && second.allowed) {
+      expect(second.softBlockedReasons).toContain("global_msg_rate");
+      await releaseAdmission({ ticket: second.ticket, config, redis: redis as any });
+    }
+
+    await releaseAdmission({ ticket: firstTicket, config, redis: redis as any });
+  });
+
+  test("uses jittered retry-after value", () => {
+    const config = createConfig({ retryAfterMs: 1000, retryAfterJitterPct: 20 });
+    expect(resolveAdmissionRetryAfterMs(config, () => 0)).toBe(800);
+    expect(resolveAdmissionRetryAfterMs(config, () => 0.5)).toBe(1000);
+    expect(resolveAdmissionRetryAfterMs(config, () => 1)).toBe(1200);
   });
 });

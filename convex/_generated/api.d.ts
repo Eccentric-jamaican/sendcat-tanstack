@@ -12,6 +12,7 @@ import type * as affiliate from "../affiliate.js";
 import type * as auth from "../auth.js";
 import type * as bulkhead from "../bulkhead.js";
 import type * as chat from "../chat.js";
+import type * as chatGateway from "../chatGateway.js";
 import type * as chatHttp from "../chatHttp.js";
 import type * as circuitBreaker from "../circuitBreaker.js";
 import type * as crons from "../crons.js";
@@ -24,6 +25,7 @@ import type * as http from "../http.js";
 import type * as idempotency from "../idempotency.js";
 import type * as integrations_crypto from "../integrations/crypto.js";
 import type * as integrations_email from "../integrations/email.js";
+import type * as integrations_emailTemplates_content from "../integrations/emailTemplates/content.js";
 import type * as integrations_emailTemplates_layout from "../integrations/emailTemplates/layout.js";
 import type * as integrations_emailTemplates_render from "../integrations/emailTemplates/render.js";
 import type * as integrations_emailTemplates_resetPassword from "../integrations/emailTemplates/resetPassword.js";
@@ -51,6 +53,7 @@ import type * as integrations_whatsapp_verify from "../integrations/whatsapp/ver
 import type * as lib_admissionControl from "../lib/admissionControl.js";
 import type * as lib_authGuards from "../lib/authGuards.js";
 import type * as lib_bulkhead from "../lib/bulkhead.js";
+import type * as lib_chatProviderRouter from "../lib/chatProviderRouter.js";
 import type * as lib_circuitBreaker from "../lib/circuitBreaker.js";
 import type * as lib_ebaySearch from "../lib/ebaySearch.js";
 import type * as lib_functionBoundaries from "../lib/functionBoundaries.js";
@@ -88,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   bulkhead: typeof bulkhead;
   chat: typeof chat;
+  chatGateway: typeof chatGateway;
   chatHttp: typeof chatHttp;
   circuitBreaker: typeof circuitBreaker;
   crons: typeof crons;
@@ -100,6 +104,7 @@ declare const fullApi: ApiFromModules<{
   idempotency: typeof idempotency;
   "integrations/crypto": typeof integrations_crypto;
   "integrations/email": typeof integrations_email;
+  "integrations/emailTemplates/content": typeof integrations_emailTemplates_content;
   "integrations/emailTemplates/layout": typeof integrations_emailTemplates_layout;
   "integrations/emailTemplates/render": typeof integrations_emailTemplates_render;
   "integrations/emailTemplates/resetPassword": typeof integrations_emailTemplates_resetPassword;
@@ -127,6 +132,7 @@ declare const fullApi: ApiFromModules<{
   "lib/admissionControl": typeof lib_admissionControl;
   "lib/authGuards": typeof lib_authGuards;
   "lib/bulkhead": typeof lib_bulkhead;
+  "lib/chatProviderRouter": typeof lib_chatProviderRouter;
   "lib/circuitBreaker": typeof lib_circuitBreaker;
   "lib/ebaySearch": typeof lib_ebaySearch;
   "lib/functionBoundaries": typeof lib_functionBoundaries;

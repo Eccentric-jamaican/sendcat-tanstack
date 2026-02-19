@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { chatHandler } from "./chatHttp";
 import {
   chatOptionsHandler,
+  chatGatewayHealthGetHandler,
   chatPostHandler,
   gmailOAuthCallbackHandler,
   gmailPushHandler,
@@ -175,6 +176,7 @@ describe("/api/chat contract", () => {
     process.env.OPENROUTER_API_KEY = "test-key";
     process.env.ADMISSION_REDIS_ENABLED = "true";
     process.env.ADMISSION_REDIS_SHADOW_MODE = "false";
+    process.env.ADMISSION_RETRY_AFTER_JITTER_PCT = "0";
     delete process.env.ADMISSION_REDIS_URL;
     delete process.env.ADMISSION_REDIS_TOKEN;
 
@@ -200,6 +202,54 @@ describe("/api/chat contract", () => {
 
     expect(response.status).toBe(500);
     expect(response.headers.get(HTTP_ERROR_CODE_HEADER)).toBe("internal_error");
+  });
+
+  test("maps expired auth tokens to unauthorized in route wrapper", async () => {
+    const response = await chatPostHandler(
+      {
+        auth: {
+          getUserIdentity: vi
+            .fn()
+            .mockRejectedValue(
+              new Error(
+                "Could not validate token: Token expired 8 seconds ago",
+              ),
+            ),
+        },
+      } as any,
+      new Request("https://example.com/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId: "t_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get(HTTP_ERROR_CODE_HEADER)).toBe("unauthorized");
+  });
+
+  test("maps malformed jwt errors to unauthorized in route wrapper", async () => {
+    const response = await chatPostHandler(
+      {
+        auth: {
+          getUserIdentity: vi
+            .fn()
+            .mockRejectedValue(
+              new Error(
+                "Could not parse JWT payload. Check that the token is a valid JWT format with three base64-encoded parts separated by dots.",
+              ),
+            ),
+        },
+      } as any,
+      new Request("https://example.com/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId: "t_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get(HTTP_ERROR_CODE_HEADER)).toBe("unauthorized");
   });
 
   test("rejects chat POST from disallowed browser origin", async () => {
@@ -242,6 +292,32 @@ describe("/api/chat contract", () => {
 
     expect(response.status).toBe(204);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  test("chat health returns forbidden for disallowed origin", async () => {
+    const response = await chatGatewayHealthGetHandler(
+      {} as any,
+      new Request("https://example.com/api/chat/health", {
+        method: "GET",
+        headers: { Origin: "https://not-allowed.invalid" },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get(HTTP_ERROR_CODE_HEADER)).toBe("forbidden");
+  });
+
+  test("chat health is disabled when FF_CHAT_GATEWAY_HEALTH_ENABLED=false", async () => {
+    process.env.FF_CHAT_GATEWAY_HEALTH_ENABLED = "false";
+    const response = await chatGatewayHealthGetHandler(
+      {} as any,
+      new Request("https://example.com/api/chat/health", {
+        method: "GET",
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get(HTTP_ERROR_CODE_HEADER)).toBe("forbidden");
   });
 });
 

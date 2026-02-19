@@ -19,9 +19,11 @@
     "reliability:snapshot": "npx convex run ops:getReliabilitySnapshot",
     "reliability:probe": "node scripts/reliability/run-synthetic-probes.mjs",
     "reliability:gate": "node scripts/reliability/run-release-gate.mjs",
+    "reliability:milestone-gate": "node scripts/reliability/run-milestone-gate.mjs",
     "reliability:canary": "node scripts/reliability/run-canary-checks.mjs",
     "reliability:gameday": "node scripts/reliability/run-game-day.mjs",
-    "reliability:dashboard": "node scripts/reliability/build-slo-dashboard.mjs"
+    "reliability:dashboard": "node scripts/reliability/build-slo-dashboard.mjs",
+    "reliability:region-readiness": "node scripts/reliability/run-region-readiness-check.mjs"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.10.10",

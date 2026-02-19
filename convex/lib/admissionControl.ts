@@ -38,6 +38,7 @@ type EnforceResult =
       allowed: true;
       mode: "enforce";
       ticket: AdmissionTicket;
+      softBlockedReasons: AdmissionBlockReason[];
     }
   | {
       allowed: false;
@@ -51,6 +52,7 @@ type ShadowResult = {
   mode: "shadow";
   wouldBlock: boolean;
   reason?: AdmissionBlockReason;
+  wouldBlockReasons: AdmissionBlockReason[];
   retryAfterMs: number;
 };
 
@@ -82,6 +84,23 @@ function toSeconds(ms: number) {
   return Math.max(Math.ceil(ms / 1000), 1);
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+export function resolveAdmissionRetryAfterMs(
+  config: AdmissionControlConfig,
+  randomFn: () => number = Math.random,
+) {
+  const base = Math.max(Math.floor(config.retryAfterMs), 100);
+  const jitterPct = clamp(config.retryAfterJitterPct, 0, 90);
+  if (jitterPct === 0) return base;
+
+  const jitterFactor = (randomFn() * 2 - 1) * (jitterPct / 100);
+  const jittered = Math.round(base * (1 + jitterFactor));
+  return clamp(jittered, 100, 60_000);
+}
+
 function buildKeys(input: {
   principalKey: string;
   nowMs: number;
@@ -103,6 +122,7 @@ function buildKeys(input: {
 function buildUnavailableResult(
   mode: AdmissionMode,
   config: AdmissionControlConfig,
+  randomFn?: () => number,
 ): AdmissionCheckResult {
   if (mode === "shadow") {
     return {
@@ -110,14 +130,15 @@ function buildUnavailableResult(
       mode: "shadow",
       wouldBlock: true,
       reason: "redis_unavailable",
-      retryAfterMs: config.retryAfterMs,
+      wouldBlockReasons: ["redis_unavailable"],
+      retryAfterMs: resolveAdmissionRetryAfterMs(config, randomFn),
     };
   }
   return {
     allowed: false,
     mode: "enforce",
     reason: "redis_unavailable",
-    retryAfterMs: config.retryAfterMs,
+    retryAfterMs: resolveAdmissionRetryAfterMs(config, randomFn),
   };
 }
 
@@ -169,6 +190,7 @@ async function checkShadowAdmission(input: {
   principalKey: string;
   estimatedToolCalls: number;
   nowMs: number;
+  randomFn: () => number;
 }): Promise<ShadowResult> {
   const keys = buildKeys({
     principalKey: input.principalKey,
@@ -176,37 +198,20 @@ async function checkShadowAdmission(input: {
     keyPrefix: input.config.keyPrefix,
   });
 
+  const wouldBlockReasons: AdmissionBlockReason[] = [];
   const userCount = toCount(await input.redis.get(keys.userInFlightKey));
   if (userCount + 1 > input.config.userMaxInFlight) {
-    return {
-      allowed: true,
-      mode: "shadow",
-      wouldBlock: true,
-      reason: "user_inflight",
-      retryAfterMs: input.config.retryAfterMs,
-    };
+    wouldBlockReasons.push("user_inflight");
   }
 
   const globalCount = toCount(await input.redis.get(keys.globalInFlightKey));
   if (globalCount + 1 > input.config.globalMaxInFlight) {
-    return {
-      allowed: true,
-      mode: "shadow",
-      wouldBlock: true,
-      reason: "global_inflight",
-      retryAfterMs: input.config.retryAfterMs,
-    };
+    wouldBlockReasons.push("global_inflight");
   }
 
   const msgCount = toCount(await input.redis.get(keys.msgRateKey));
   if (msgCount + 1 > input.config.globalMaxMessagesPerSecond) {
-    return {
-      allowed: true,
-      mode: "shadow",
-      wouldBlock: true,
-      reason: "global_msg_rate",
-      retryAfterMs: input.config.retryAfterMs,
-    };
+    wouldBlockReasons.push("global_msg_rate");
   }
 
   if (input.estimatedToolCalls > 0) {
@@ -215,21 +220,17 @@ async function checkShadowAdmission(input: {
       toolCount + input.estimatedToolCalls >
       input.config.globalMaxToolCallsPerSecond
     ) {
-      return {
-        allowed: true,
-        mode: "shadow",
-        wouldBlock: true,
-        reason: "global_tool_rate",
-        retryAfterMs: input.config.retryAfterMs,
-      };
+      wouldBlockReasons.push("global_tool_rate");
     }
   }
 
   return {
     allowed: true,
     mode: "shadow",
-    wouldBlock: false,
-    retryAfterMs: input.config.retryAfterMs,
+    wouldBlock: wouldBlockReasons.length > 0,
+    reason: wouldBlockReasons[0],
+    wouldBlockReasons,
+    retryAfterMs: resolveAdmissionRetryAfterMs(input.config, input.randomFn),
   };
 }
 
@@ -239,6 +240,7 @@ async function checkAndAcquireEnforceAdmission(input: {
   principalKey: string;
   estimatedToolCalls: number;
   nowMs: number;
+  randomFn: () => number;
 }): Promise<EnforceResult> {
   const ticketId = createTicketId();
   const keys = buildKeys({
@@ -253,38 +255,52 @@ async function checkAndAcquireEnforceAdmission(input: {
   let globalInFlightAcquired = false;
   let msgRateAcquired = false;
   let toolRateAcquired = false;
+  const softBlockedReasons: AdmissionBlockReason[] = [];
 
   try {
     const userCount = toCount(await input.redis.incr(keys.userInFlightKey));
     await input.redis.expire(keys.userInFlightKey, ticketTtlSeconds);
-    if (userCount > input.config.userMaxInFlight) {
+    if (
+      userCount > input.config.userMaxInFlight &&
+      input.config.enforceUserInFlight
+    ) {
       await safeDecrement(input.redis, keys.userInFlightKey, 1);
       return {
         allowed: false,
         mode: "enforce",
         reason: "user_inflight",
-        retryAfterMs: input.config.retryAfterMs,
+        retryAfterMs: resolveAdmissionRetryAfterMs(input.config, input.randomFn),
       };
+    } else if (userCount > input.config.userMaxInFlight) {
+      softBlockedReasons.push("user_inflight");
     }
     userInFlightAcquired = true;
 
     const globalCount = toCount(await input.redis.incr(keys.globalInFlightKey));
     await input.redis.expire(keys.globalInFlightKey, ticketTtlSeconds);
-    if (globalCount > input.config.globalMaxInFlight) {
+    if (
+      globalCount > input.config.globalMaxInFlight &&
+      input.config.enforceGlobalInFlight
+    ) {
       await safeDecrement(input.redis, keys.globalInFlightKey, 1);
       await safeDecrement(input.redis, keys.userInFlightKey, 1);
       return {
         allowed: false,
         mode: "enforce",
         reason: "global_inflight",
-        retryAfterMs: input.config.retryAfterMs,
+        retryAfterMs: resolveAdmissionRetryAfterMs(input.config, input.randomFn),
       };
+    } else if (globalCount > input.config.globalMaxInFlight) {
+      softBlockedReasons.push("global_inflight");
     }
     globalInFlightAcquired = true;
 
     const msgCount = toCount(await input.redis.incr(keys.msgRateKey));
     await input.redis.expire(keys.msgRateKey, REDIS_BUCKET_TTL_SECONDS);
-    if (msgCount > input.config.globalMaxMessagesPerSecond) {
+    if (
+      msgCount > input.config.globalMaxMessagesPerSecond &&
+      input.config.enforceGlobalMessageRate
+    ) {
       await safeDecrement(input.redis, keys.msgRateKey, 1);
       await safeDecrement(input.redis, keys.globalInFlightKey, 1);
       await safeDecrement(input.redis, keys.userInFlightKey, 1);
@@ -292,8 +308,10 @@ async function checkAndAcquireEnforceAdmission(input: {
         allowed: false,
         mode: "enforce",
         reason: "global_msg_rate",
-        retryAfterMs: input.config.retryAfterMs,
+        retryAfterMs: resolveAdmissionRetryAfterMs(input.config, input.randomFn),
       };
+    } else if (msgCount > input.config.globalMaxMessagesPerSecond) {
+      softBlockedReasons.push("global_msg_rate");
     }
     msgRateAcquired = true;
 
@@ -303,16 +321,26 @@ async function checkAndAcquireEnforceAdmission(input: {
       );
       await input.redis.expire(keys.toolRateKey, REDIS_BUCKET_TTL_SECONDS);
       if (toolCount > input.config.globalMaxToolCallsPerSecond) {
-        await safeDecrement(input.redis, keys.toolRateKey, input.estimatedToolCalls);
-        await safeDecrement(input.redis, keys.msgRateKey, 1);
-        await safeDecrement(input.redis, keys.globalInFlightKey, 1);
-        await safeDecrement(input.redis, keys.userInFlightKey, 1);
-        return {
-          allowed: false,
-          mode: "enforce",
-          reason: "global_tool_rate",
-          retryAfterMs: input.config.retryAfterMs,
-        };
+        if (input.config.enforceGlobalToolRate) {
+          await safeDecrement(
+            input.redis,
+            keys.toolRateKey,
+            input.estimatedToolCalls,
+          );
+          await safeDecrement(input.redis, keys.msgRateKey, 1);
+          await safeDecrement(input.redis, keys.globalInFlightKey, 1);
+          await safeDecrement(input.redis, keys.userInFlightKey, 1);
+          return {
+            allowed: false,
+            mode: "enforce",
+            reason: "global_tool_rate",
+            retryAfterMs: resolveAdmissionRetryAfterMs(
+              input.config,
+              input.randomFn,
+            ),
+          };
+        }
+        softBlockedReasons.push("global_tool_rate");
       }
       toolRateAcquired = true;
     }
@@ -329,6 +357,7 @@ async function checkAndAcquireEnforceAdmission(input: {
         globalInFlightKey: keys.globalInFlightKey,
         userInFlightKey: keys.userInFlightKey,
       },
+      softBlockedReasons,
     };
   } catch {
     if (toolRateAcquired && input.estimatedToolCalls > 0) {
@@ -347,7 +376,7 @@ async function checkAndAcquireEnforceAdmission(input: {
       allowed: false,
       mode: "enforce",
       reason: "redis_unavailable",
-      retryAfterMs: input.config.retryAfterMs,
+      retryAfterMs: resolveAdmissionRetryAfterMs(input.config, input.randomFn),
     };
   }
 }
@@ -359,6 +388,7 @@ export async function checkAndAcquireAdmission(input: {
   nowMs?: number;
   config?: AdmissionControlConfig;
   redis?: AdmissionRedisClient | null;
+  randomFn?: () => number;
 }): Promise<AdmissionCheckResult> {
   const config = input.config ?? getAdmissionControlConfig();
   if (!config.enabled) {
@@ -366,13 +396,14 @@ export async function checkAndAcquireAdmission(input: {
       allowed: true,
       mode: "shadow",
       wouldBlock: false,
-      retryAfterMs: config.retryAfterMs,
+      wouldBlockReasons: [],
+      retryAfterMs: resolveAdmissionRetryAfterMs(config, input.randomFn),
     };
   }
 
   const redis = getRedisClient(config, input.redis);
   if (!redis) {
-    return buildUnavailableResult(input.mode, config);
+    return buildUnavailableResult(input.mode, config, input.randomFn);
   }
 
   const nowMs = input.nowMs ?? Date.now();
@@ -389,9 +420,10 @@ export async function checkAndAcquireAdmission(input: {
         principalKey: input.principalKey,
         estimatedToolCalls,
         nowMs,
+        randomFn: input.randomFn ?? Math.random,
       });
     } catch {
-      return buildUnavailableResult("shadow", config);
+      return buildUnavailableResult("shadow", config, input.randomFn);
     }
   }
 
@@ -401,6 +433,7 @@ export async function checkAndAcquireAdmission(input: {
     principalKey: input.principalKey,
     estimatedToolCalls,
     nowMs,
+    randomFn: input.randomFn ?? Math.random,
   });
 }
 

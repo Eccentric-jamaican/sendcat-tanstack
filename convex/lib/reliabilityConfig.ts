@@ -1,3 +1,5 @@
+import { ToolJobCounts, ToolJobQosCounts } from "./toolJobQueue";
+
 type RateLimitKey =
   | "chatStream"
   | "gmailPushWebhook"
@@ -6,12 +8,16 @@ type RateLimitKey =
   | "whatsappLinkingCode";
 
 type CircuitProvider =
+  | "openrouter_chat_primary"
+  | "openrouter_chat_secondary"
   | "openrouter_chat"
   | "serper_search"
   | "gmail_oauth"
   | "ebay_search"
   | "global_search";
 type BulkheadProvider =
+  | "openrouter_chat_primary"
+  | "openrouter_chat_secondary"
   | "openrouter_chat"
   | "serper_search"
   | "gmail_oauth"
@@ -64,6 +70,36 @@ type ToolJobConfig = {
   claimScanSize: number;
   maxRunningByTool: ToolJobCounts;
   maxQueuedByTool: ToolJobCounts;
+  maxRunningByQos: ToolJobQosCounts;
+  deadLetterRetentionMs: number;
+};
+
+type ToolQueueAlertConfig = {
+  enabled: boolean;
+  windowMinutes: number;
+  cooldownMs: number;
+  maxQueuedJobs: number;
+  maxDeadLetterJobs: number;
+  maxOldestQueuedAgeMs: number;
+  maxOldestRunningAgeMs: number;
+};
+
+type ChatProviderRouteConfig = {
+  primaryTimeoutMs: number;
+  primaryRetries: number;
+  secondaryTimeoutMs: number;
+  secondaryRetries: number;
+  fastPrimaryModel: string;
+  fastSecondaryModel: string;
+  agentPrimaryModel: string;
+  agentSecondaryModel: string;
+  defaultModelClass: "fast" | "agent";
+};
+
+type RegionTopologyConfig = {
+  regionId: string;
+  topologyMode: "single_region" | "active_standby" | "active_active";
+  readinessOnly: boolean;
 };
 
 export type AdmissionControlConfig = {
@@ -72,6 +108,10 @@ export type AdmissionControlConfig = {
   redisUrl: string;
   redisToken: string;
   keyPrefix: string;
+  enforceUserInFlight: boolean;
+  enforceGlobalInFlight: boolean;
+  enforceGlobalMessageRate: boolean;
+  enforceGlobalToolRate: boolean;
   userMaxInFlight: number;
   globalMaxInFlight: number;
   globalMaxMessagesPerSecond: number;
@@ -79,6 +119,18 @@ export type AdmissionControlConfig = {
   estimatedToolCallsPerMessage: number;
   ticketTtlMs: number;
   retryAfterMs: number;
+  retryAfterJitterPct: number;
+  allowedEventSamplePct: number;
+};
+
+export type ChatGatewayFlags = {
+  enabled: boolean;
+  shadowMode: boolean;
+  admissionEnforce: boolean;
+  toolQueueEnforce: boolean;
+  providerFailoverEnabled: boolean;
+  failClosedOnRedisError: boolean;
+  healthEndpointEnabled: boolean;
 };
 
 const DEFAULT_RATE_LIMITS: RateLimitConfig = {
@@ -105,6 +157,14 @@ const DEFAULT_RATE_LIMITS: RateLimitConfig = {
 };
 
 const DEFAULT_CIRCUITS: CircuitConfig = {
+  openrouter_chat_primary: {
+    threshold: 5,
+    cooldownMs: 60_000,
+  },
+  openrouter_chat_secondary: {
+    threshold: 4,
+    cooldownMs: 45_000,
+  },
   openrouter_chat: {
     threshold: 5,
     cooldownMs: 60_000,
@@ -128,6 +188,14 @@ const DEFAULT_CIRCUITS: CircuitConfig = {
 };
 
 const DEFAULT_BULKHEADS: BulkheadConfig = {
+  openrouter_chat_primary: {
+    maxConcurrent: 24,
+    leaseTtlMs: 10 * 60 * 1000,
+  },
+  openrouter_chat_secondary: {
+    maxConcurrent: 16,
+    leaseTtlMs: 10 * 60 * 1000,
+  },
   openrouter_chat: {
     maxConcurrent: 24,
     leaseTtlMs: 10 * 60 * 1000,
@@ -160,6 +228,10 @@ const DEFAULT_ADMISSION_CONTROL: AdmissionControlConfig = {
   redisUrl: "",
   redisToken: "",
   keyPrefix: "admit:chat",
+  enforceUserInFlight: true,
+  enforceGlobalInFlight: true,
+  enforceGlobalMessageRate: true,
+  enforceGlobalToolRate: true,
   userMaxInFlight: 1,
   globalMaxInFlight: 300,
   globalMaxMessagesPerSecond: 120,
@@ -167,6 +239,36 @@ const DEFAULT_ADMISSION_CONTROL: AdmissionControlConfig = {
   estimatedToolCallsPerMessage: 2,
   ticketTtlMs: 45_000,
   retryAfterMs: 1_000,
+  retryAfterJitterPct: 20,
+  allowedEventSamplePct: 5,
+};
+
+const DEFAULT_CHAT_GATEWAY_FLAGS: ChatGatewayFlags = {
+  enabled: false,
+  shadowMode: true,
+  admissionEnforce: false,
+  toolQueueEnforce: false,
+  providerFailoverEnabled: false,
+  failClosedOnRedisError: false,
+  healthEndpointEnabled: true,
+};
+
+const DEFAULT_CHAT_PROVIDER_ROUTING: ChatProviderRouteConfig = {
+  primaryTimeoutMs: 45_000,
+  primaryRetries: 0,
+  secondaryTimeoutMs: 35_000,
+  secondaryRetries: 0,
+  fastPrimaryModel: "moonshotai/kimi-k2.5",
+  fastSecondaryModel: "google/gemini-2.0-flash-exp:free",
+  agentPrimaryModel: "openai/gpt-5",
+  agentSecondaryModel: "moonshotai/kimi-k2.5",
+  defaultModelClass: "agent",
+};
+
+const DEFAULT_REGION_TOPOLOGY: RegionTopologyConfig = {
+  regionId: "us-east-1",
+  topologyMode: "single_region",
+  readinessOnly: true,
 };
 
 function parsePositiveInt(
@@ -209,6 +311,45 @@ function parsePrefix(value: string | undefined, fallback: string) {
   if (!trimmed) return fallback;
   if (!/^[a-zA-Z0-9:_-]{1,64}$/.test(trimmed)) return fallback;
   return trimmed;
+}
+
+function parseRegionId(value: string | undefined, fallback: string) {
+  if (!value) return fallback;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return fallback;
+  if (!/^[a-z0-9-]{2,24}$/.test(trimmed)) return fallback;
+  return trimmed;
+}
+
+function parseTopologyMode(
+  value: string | undefined,
+  fallback: RegionTopologyConfig["topologyMode"],
+) {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "single_region") return "single_region";
+  if (normalized === "active_standby") return "active_standby";
+  if (normalized === "active_active") return "active_active";
+  return fallback;
+}
+
+function parseModelId(value: string | undefined, fallback: string) {
+  if (!value) return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  if (!/^[a-zA-Z0-9._:/-]{3,120}$/.test(trimmed)) return fallback;
+  return trimmed;
+}
+
+function parseModelClass(
+  value: string | undefined,
+  fallback: "fast" | "agent",
+) {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "fast") return "fast";
+  if (normalized === "agent") return "agent";
+  return fallback;
 }
 
 export function getRateLimitConfig(): RateLimitConfig {
@@ -288,6 +429,34 @@ export function getRateLimitConfig(): RateLimitConfig {
 
 export function getCircuitConfig(): CircuitConfig {
   return {
+    openrouter_chat_primary: {
+      threshold: parsePositiveInt(
+        process.env.CIRCUIT_OPENROUTER_PRIMARY_THRESHOLD,
+        DEFAULT_CIRCUITS.openrouter_chat_primary.threshold,
+        1,
+        100,
+      ),
+      cooldownMs: parsePositiveInt(
+        process.env.CIRCUIT_OPENROUTER_PRIMARY_COOLDOWN_MS,
+        DEFAULT_CIRCUITS.openrouter_chat_primary.cooldownMs,
+        1000,
+        60 * 60 * 1000,
+      ),
+    },
+    openrouter_chat_secondary: {
+      threshold: parsePositiveInt(
+        process.env.CIRCUIT_OPENROUTER_SECONDARY_THRESHOLD,
+        DEFAULT_CIRCUITS.openrouter_chat_secondary.threshold,
+        1,
+        100,
+      ),
+      cooldownMs: parsePositiveInt(
+        process.env.CIRCUIT_OPENROUTER_SECONDARY_COOLDOWN_MS,
+        DEFAULT_CIRCUITS.openrouter_chat_secondary.cooldownMs,
+        1000,
+        60 * 60 * 1000,
+      ),
+    },
     openrouter_chat: {
       threshold: parsePositiveInt(
         process.env.CIRCUIT_OPENROUTER_THRESHOLD,
@@ -363,6 +532,34 @@ export function getCircuitConfig(): CircuitConfig {
 
 export function getBulkheadConfig(): BulkheadConfig {
   return {
+    openrouter_chat_primary: {
+      maxConcurrent: parsePositiveInt(
+        process.env.BULKHEAD_OR_PRI_MAX_CONCURRENT,
+        DEFAULT_BULKHEADS.openrouter_chat_primary.maxConcurrent,
+        1,
+        500,
+      ),
+      leaseTtlMs: parsePositiveInt(
+        process.env.BULKHEAD_OR_PRI_LEASE_TTL_MS,
+        DEFAULT_BULKHEADS.openrouter_chat_primary.leaseTtlMs,
+        15_000,
+        60 * 60 * 1000,
+      ),
+    },
+    openrouter_chat_secondary: {
+      maxConcurrent: parsePositiveInt(
+        process.env.BULKHEAD_OR_SEC_MAX_CONCURRENT,
+        DEFAULT_BULKHEADS.openrouter_chat_secondary.maxConcurrent,
+        1,
+        500,
+      ),
+      leaseTtlMs: parsePositiveInt(
+        process.env.BULKHEAD_OR_SEC_LEASE_TTL_MS,
+        DEFAULT_BULKHEADS.openrouter_chat_secondary.leaseTtlMs,
+        15_000,
+        60 * 60 * 1000,
+      ),
+    },
     openrouter_chat: {
       maxConcurrent: parsePositiveInt(
         process.env.BULKHEAD_OPENROUTER_MAX_CONCURRENT,
@@ -584,6 +781,140 @@ export function getToolJobConfig(): ToolJobConfig {
         10_000,
       ),
     },
+    maxRunningByQos: {
+      realtime: parsePositiveInt(
+        process.env.TOOL_JOB_RUNMAX_QOS_REALTIME,
+        2,
+        1,
+        100,
+      ),
+      interactive: parsePositiveInt(
+        process.env.TOOL_JOB_RUNMAX_QOS_INTERACTIVE,
+        2,
+        1,
+        100,
+      ),
+      batch: parsePositiveInt(
+        process.env.TOOL_JOB_RUNMAX_QOS_BATCH,
+        1,
+        1,
+        100,
+      ),
+    },
+    deadLetterRetentionMs: parsePositiveInt(
+      process.env.TOOL_JOB_DLQ_TTL_MS,
+      7 * 24 * 60 * 60 * 1000,
+      60_000,
+      90 * 24 * 60 * 60 * 1000,
+    ),
+  };
+}
+
+export function getToolQueueAlertConfig(): ToolQueueAlertConfig {
+  return {
+    enabled: parseBoolean(process.env.TOOL_QUEUE_ALERTS_ENABLED, true),
+    windowMinutes: parsePositiveInt(
+      process.env.TOOL_QUEUE_ALERT_WINDOW_MIN,
+      5,
+      1,
+      60,
+    ),
+    cooldownMs: parsePositiveInt(
+      process.env.TOOL_QUEUE_ALERT_COOLDOWN_MS,
+      15 * 60 * 1000,
+      60_000,
+      24 * 60 * 60 * 1000,
+    ),
+    maxQueuedJobs: parsePositiveInt(
+      process.env.TOOL_QUEUE_ALERT_MAX_QUEUED,
+      200,
+      1,
+      500_000,
+    ),
+    maxDeadLetterJobs: parsePositiveInt(
+      process.env.TOOL_QUEUE_ALERT_MAX_DLQ,
+      20,
+      1,
+      500_000,
+    ),
+    maxOldestQueuedAgeMs: parsePositiveInt(
+      process.env.TOOL_QUEUE_ALERT_MAX_QUEUED_AGE_MS,
+      60_000,
+      1000,
+      60 * 60 * 1000,
+    ),
+    maxOldestRunningAgeMs: parsePositiveInt(
+      process.env.TOOL_QUEUE_ALERT_MAX_RUNNING_AGE_MS,
+      5 * 60 * 1000,
+      1000,
+      60 * 60 * 1000,
+    ),
+  };
+}
+
+export function getChatProviderRouteConfig(): ChatProviderRouteConfig {
+  return {
+    primaryTimeoutMs: parsePositiveInt(
+      process.env.CHAT_PROVIDER_PRIMARY_TIMEOUT_MS,
+      DEFAULT_CHAT_PROVIDER_ROUTING.primaryTimeoutMs,
+      1000,
+      120_000,
+    ),
+    primaryRetries: parsePositiveInt(
+      process.env.CHAT_PROVIDER_PRIMARY_RETRIES,
+      DEFAULT_CHAT_PROVIDER_ROUTING.primaryRetries,
+      0,
+      3,
+    ),
+    secondaryTimeoutMs: parsePositiveInt(
+      process.env.CHAT_PROVIDER_SECONDARY_TIMEOUT_MS,
+      DEFAULT_CHAT_PROVIDER_ROUTING.secondaryTimeoutMs,
+      1000,
+      120_000,
+    ),
+    secondaryRetries: parsePositiveInt(
+      process.env.CHAT_PROVIDER_SECONDARY_RETRIES,
+      DEFAULT_CHAT_PROVIDER_ROUTING.secondaryRetries,
+      0,
+      3,
+    ),
+    fastPrimaryModel: parseModelId(
+      process.env.CHAT_MODEL_FAST_PRIMARY,
+      DEFAULT_CHAT_PROVIDER_ROUTING.fastPrimaryModel,
+    ),
+    fastSecondaryModel: parseModelId(
+      process.env.CHAT_MODEL_FAST_SECONDARY,
+      DEFAULT_CHAT_PROVIDER_ROUTING.fastSecondaryModel,
+    ),
+    agentPrimaryModel: parseModelId(
+      process.env.CHAT_MODEL_AGENT_PRIMARY,
+      DEFAULT_CHAT_PROVIDER_ROUTING.agentPrimaryModel,
+    ),
+    agentSecondaryModel: parseModelId(
+      process.env.CHAT_MODEL_AGENT_SECONDARY,
+      DEFAULT_CHAT_PROVIDER_ROUTING.agentSecondaryModel,
+    ),
+    defaultModelClass: parseModelClass(
+      process.env.CHAT_DEFAULT_MODEL_CLASS,
+      DEFAULT_CHAT_PROVIDER_ROUTING.defaultModelClass,
+    ),
+  };
+}
+
+export function getRegionTopologyConfig(): RegionTopologyConfig {
+  return {
+    regionId: parseRegionId(
+      process.env.RELIABILITY_REGION_ID,
+      DEFAULT_REGION_TOPOLOGY.regionId,
+    ),
+    topologyMode: parseTopologyMode(
+      process.env.RELIABILITY_TOPOLOGY_MODE,
+      DEFAULT_REGION_TOPOLOGY.topologyMode,
+    ),
+    readinessOnly: parseBoolean(
+      process.env.RELIABILITY_REGION_READINESS_ONLY,
+      DEFAULT_REGION_TOPOLOGY.readinessOnly,
+    ),
   };
 }
 
@@ -602,6 +933,22 @@ export function getAdmissionControlConfig(): AdmissionControlConfig {
     keyPrefix: parsePrefix(
       process.env.ADMISSION_REDIS_KEY_PREFIX,
       DEFAULT_ADMISSION_CONTROL.keyPrefix,
+    ),
+    enforceUserInFlight: parseBoolean(
+      process.env.ADMISSION_ENFORCE_USER_INFLIGHT,
+      DEFAULT_ADMISSION_CONTROL.enforceUserInFlight,
+    ),
+    enforceGlobalInFlight: parseBoolean(
+      process.env.ADMISSION_ENFORCE_GLOBAL_INFLIGHT,
+      DEFAULT_ADMISSION_CONTROL.enforceGlobalInFlight,
+    ),
+    enforceGlobalMessageRate: parseBoolean(
+      process.env.ADMISSION_ENFORCE_GLOBAL_MSG_RATE,
+      DEFAULT_ADMISSION_CONTROL.enforceGlobalMessageRate,
+    ),
+    enforceGlobalToolRate: parseBoolean(
+      process.env.ADMISSION_ENFORCE_GLOBAL_TOOL_RATE,
+      DEFAULT_ADMISSION_CONTROL.enforceGlobalToolRate,
     ),
     userMaxInFlight: parsePositiveInt(
       process.env.ADMISSION_USER_MAX_INFLIGHT,
@@ -645,6 +992,50 @@ export function getAdmissionControlConfig(): AdmissionControlConfig {
       100,
       60_000,
     ),
+    retryAfterJitterPct: parsePositiveInt(
+      process.env.ADMISSION_RETRY_AFTER_JITTER_PCT,
+      DEFAULT_ADMISSION_CONTROL.retryAfterJitterPct,
+      0,
+      90,
+    ),
+    allowedEventSamplePct: parsePositiveInt(
+      process.env.ADMISSION_ALLOWED_EVENT_SAMPLE_PCT,
+      DEFAULT_ADMISSION_CONTROL.allowedEventSamplePct,
+      0,
+      100,
+    ),
   };
 }
-import { ToolJobCounts } from "./toolJobQueue";
+
+export function getChatGatewayFlags(): ChatGatewayFlags {
+  return {
+    enabled: parseBoolean(
+      process.env.FF_CHAT_GATEWAY_ENABLED,
+      DEFAULT_CHAT_GATEWAY_FLAGS.enabled,
+    ),
+    shadowMode: parseBoolean(
+      process.env.FF_CHAT_GATEWAY_SHADOW,
+      DEFAULT_CHAT_GATEWAY_FLAGS.shadowMode,
+    ),
+    admissionEnforce: parseBoolean(
+      process.env.FF_ADMISSION_ENFORCE,
+      DEFAULT_CHAT_GATEWAY_FLAGS.admissionEnforce,
+    ),
+    toolQueueEnforce: parseBoolean(
+      process.env.FF_TOOL_QUEUE_ENFORCE,
+      DEFAULT_CHAT_GATEWAY_FLAGS.toolQueueEnforce,
+    ),
+    providerFailoverEnabled: parseBoolean(
+      process.env.FF_PROVIDER_FAILOVER_ENABLED,
+      DEFAULT_CHAT_GATEWAY_FLAGS.providerFailoverEnabled,
+    ),
+    failClosedOnRedisError: parseBoolean(
+      process.env.FF_FAIL_CLOSED_ON_REDIS_ERROR,
+      DEFAULT_CHAT_GATEWAY_FLAGS.failClosedOnRedisError,
+    ),
+    healthEndpointEnabled: parseBoolean(
+      process.env.FF_CHAT_GATEWAY_HEALTH_ENABLED,
+      DEFAULT_CHAT_GATEWAY_FLAGS.healthEndpointEnabled,
+    ),
+  };
+}
