@@ -1206,3 +1206,197 @@
 - `npm run reliability:gate -- --base-url=https://admired-antelope-676.convex.site --profile=quick` -> passed.
   - report:
     - `.output/reliability/release-gate-2026-02-18T04-03-30-712Z.json`
+
+## 2026-02-19 - Redis Admission Control (Dual-Run + Fail-Fast) Implementation + Validation
+
+### Goal
+- Add Redis-backed hot-path admission control for chat traffic to reduce Convex limiter contention at higher QPS while preserving fail-fast behavior.
+
+### Implemented
+- Added `@upstash/redis` dependency.
+- Added `convex/lib/admissionControl.ts`:
+  - enforce mode: per-user inflight, global inflight, global msg/s, global tool/s checks
+  - shadow mode: non-mutating would-block evaluation
+  - strict release with ticket key + TTL fallback
+- Added admission config surface in `convex/lib/reliabilityConfig.ts`:
+  - `ADMISSION_REDIS_ENABLED`
+  - `ADMISSION_REDIS_SHADOW_MODE`
+  - `ADMISSION_REDIS_URL`
+  - `ADMISSION_REDIS_TOKEN`
+  - `ADMISSION_REDIS_KEY_PREFIX`
+  - `ADMISSION_USER_MAX_INFLIGHT`
+  - `ADMISSION_GLOBAL_MAX_INFLIGHT`
+  - `ADMISSION_GLOBAL_MAX_MSG_PER_SEC`
+  - `ADMISSION_GLOBAL_MAX_TOOL_PER_SEC`
+  - `ADMISSION_EST_TOOL_CALLS_PER_MSG`
+  - `ADMISSION_TICKET_TTL_MS`
+  - `ADMISSION_RETRY_AFTER_MS`
+- Integrated admission checks into both chat entry points:
+  - `convex/chatHttp.ts` (`/api/chat`)
+  - `convex/chat.ts` (`chat:streamAnswer`)
+- Dual-run behavior:
+  - legacy Convex limiter remains authoritative only when admission is disabled or shadow mode is enabled
+  - enforce mode uses Redis admission as gate
+- Fail-fast behavior:
+  - admission denials return/throw `rate_limited` with `Retry-After`
+  - downstream bulkhead saturation still maps to `503` in HTTP path
+- Added observability buckets:
+  - `chat_admission`
+  - `chat_admission_shadow`
+- Added alert rules in `convex/rateLimit.ts` for `chat_admission` pressure.
+- Included admission config in `ops:getReliabilitySnapshot`.
+- Documented new admission env vars in `scripts/reliability/README.md`.
+
+### Validation
+- `npx vitest run convex/lib/admissionControl.test.ts convex/lib/reliabilityConfig.test.ts convex/http.contract.test.ts` -> passed (`39/39`).
+- `npm test` currently has one unrelated pre-existing failure in `convex/lib/circuitBreaker.test.ts` (`429` classification expectation mismatch).
+
+## 2026-02-19 - Reliability Drill SLO Hardening (2xx Success-Rate Gate) + Findings
+
+### Goal
+- Prevent false-positive drill passes when latency is low but most requests are admission rejections (`429`).
+
+### Implemented
+- Updated SLO evaluator in `scripts/reliability/run-load-drills.mjs`:
+  - computes `2xx_success_rate`
+  - supports optional `minTwoXxRate` threshold
+  - includes a `2xx_success_rate` check in scenario results when configured
+- Updated chat drill SLO in `scripts/reliability/run-load-drills.mjs`:
+  - `minTwoXxRate: 0.9` for `chat_stream_http`
+- Updated baseline config in `scripts/reliability/slo-baseline.json`:
+  - `/api/chat.minTwoXxRate: 0.9`
+  - version bumped to `phase-1-11b-2026-02-19`
+- Updated docs in `scripts/reliability/README.md`:
+  - added `2xx success rate >= 90%` under chat SLO gates
+
+### Validation
+- `npm run reliability:drill -- --profile=standard --scenarios=chat_stream_http --base-url=https://admired-antelope-676.convex.site --auth-token=<token> --thread-id=j97eb0ep90wycedjdjeybsz60d81d4mt` -> passed.
+  - report: `.output/reliability/load-drill-standard-2026-02-19T00-43-20-822Z.json`
+  - check: `2xx_success_rate = 1.0` (PASS vs `0.9`)
+- `npm run reliability:drill -- --profile=burst --scenarios=chat_stream_http --base-url=https://admired-antelope-676.convex.site --auth-token=<token> --thread-id=j97eb0ep90wycedjdjeybsz60d81d4mt` -> failed as expected.
+  - report: `.output/reliability/load-drill-burst-2026-02-19T00-43-40-682Z.json`
+  - check: `2xx_success_rate = 0.4` (FAIL vs `0.9`)
+- `npm run reliability:drill -- --profile=soak --scenarios=chat_stream_http --base-url=https://admired-antelope-676.convex.site --auth-token=<token> --thread-id=j97eb0ep90wycedjdjeybsz60d81d4mt` -> failed as expected.
+  - report: `.output/reliability/load-drill-soak-2026-02-19T00-45-27-162Z.json`
+  - check: `2xx_success_rate = 0.0752` (FAIL vs `0.9`)
+
+### Findings
+- Previous SLO gate allowed high-`429` runs to pass if latency/5xx/error-rate were within limits.
+- New gate now correctly distinguishes:
+  - healthy success throughput (`standard`: PASS)
+  - heavy admission rejection regimes (`burst`/`soak`: FAIL)
+- This makes drill pass/fail align with user-perceived availability instead of only backend responsiveness on rejected requests.
+
+## 2026-02-19 - Multi-User Chat Pressure Drill (Auth Pool + Stage Scaling) Implementation + Findings
+
+### Goal
+- Pressure test `/api/chat` with multiple authenticated users instead of a single token, and amplify chat drill intensity in a controlled way.
+
+### Implemented
+- Added multi-user chat auth pool support to `scripts/reliability/run-load-drills.mjs`:
+  - accepts `--chat-auth-pool-file` or `--chat-auth-pool-json`
+  - supports env vars:
+    - `RELIABILITY_CHAT_AUTH_POOL_FILE`
+    - `RELIABILITY_CHAT_AUTH_POOL_JSON`
+  - round-robin assignment of `{ authToken, threadId }` per request
+  - report now includes:
+    - `chatAuthPoolSize`
+    - `chatStageScale` (`load`, `concurrency`, `duration`)
+- Added chat stage scaling flags:
+  - `--chat-load-scale`
+  - `--chat-concurrency-scale`
+  - `--chat-duration-scale`
+- Added auth-pool generator script:
+  - `scripts/reliability/generate-chat-auth-pool.mjs`
+  - npm command: `npm run reliability:pool`
+  - flow:
+    - sign-in existing seeded user email (fallback sign-up)
+    - fetch Convex bearer token from `/api/auth/convex/token`
+    - create per-user thread via `threads:create`
+    - output pool JSON with `authToken` + `threadId`
+- Documented usage and flags in `scripts/reliability/README.md`.
+
+### Validation Runs
+- Generated 40-user pool:
+  - `npm run reliability:pool -- --count=40 --app-origin=http://localhost:3000 --convex-url=https://admired-antelope-676.convex.cloud --prefix=loadtestmulti --seed=20260219a`
+  - output:
+    - `.output/reliability/chat-auth-pool-loadtestmulti-20260219a-1-40.json`
+- Multi-user standard pressure:
+  - `npm run reliability:drill -- --profile=standard --scenarios=chat_stream_http --chat-auth-pool-file=.output/reliability/chat-auth-pool-loadtestmulti-20260219a-1-40.json --chat-load-scale=10 --chat-concurrency-scale=10 --base-url=https://admired-antelope-676.convex.site`
+  - report:
+    - `.output/reliability/load-drill-standard-2026-02-19T01-00-09-597Z.json`
+- Multi-user burst pressure:
+  - `npm run reliability:drill -- --profile=burst --scenarios=chat_stream_http --chat-auth-pool-file=.output/reliability/chat-auth-pool-loadtestmulti-20260219a-1-40.json --chat-load-scale=20 --chat-concurrency-scale=20 --base-url=https://admired-antelope-676.convex.site`
+  - report:
+    - `.output/reliability/load-drill-burst-2026-02-19T01-00-33-213Z.json`
+- Multi-user soak pressure:
+  - `npm run reliability:drill -- --profile=soak --scenarios=chat_stream_http --chat-auth-pool-file=.output/reliability/chat-auth-pool-loadtestmulti-20260219a-1-40.json --chat-concurrency-scale=20 --chat-duration-scale=1 --base-url=https://admired-antelope-676.convex.site`
+  - report:
+    - `.output/reliability/load-drill-soak-2026-02-19T01-02-15-512Z.json`
+
+### Findings (Multi-User)
+- Standard (`pool=40`, `load x10`, `concurrency x10`):
+  - `total=180`, statuses: `200=54`, `503=125`, `500=1`
+  - SLO: `FAIL` (`5xx_rate=0.70`, `2xx_success_rate=0.30`)
+- Burst (`pool=40`, `load x20`, `concurrency x20`):
+  - `total=600`, statuses: `200=234`, `503=366`
+  - SLO: `FAIL` (`5xx_rate=0.61`, `2xx_success_rate=0.39`)
+- Soak (`pool=40`, `concurrency x20`, `90s`):
+  - `total=5989`, statuses: `200=238`, `429=5568`, `503=183`
+  - SLO: `FAIL` (`2xx_success_rate=0.0397`)
+- Convex pressure telemetry in last 30 minutes:
+  - `rateLimit:getEventSummary` reported `chat_stream:blocked=718`
+- Interpretation:
+  - system remains fail-fast under pressure (rejects dominate instead of collapse)
+  - current throughput ceilings are constrained by configured bulkhead/rate-limit/admission guardrails
+  - multi-user pressure path is now reproducible with explicit artifacts and knobs
+
+## 2026-02-19 - Controlled Tuning Pass (Dev) + Post-Tuning Capacity Sweep
+
+### Goal
+- Raise chat throughput headroom in dev and find the next failure plateau using the new multi-user drill harness.
+
+### Runtime Tuning Applied (Convex ownDev env)
+- `BULKHEAD_OPENROUTER_MAX_CONCURRENT=120` (from default `24`)
+- `RATE_LIMIT_CHAT_STREAM_MAX=1000` (from default `30`)
+- `RATE_LIMIT_CHAT_STREAM_WINDOW_MS=300000` (unchanged duration, higher cap)
+- Note: attempted `RATE_LIMIT_CHAT_STREAM_MAX=2000`, but config parser caps at `1000`, so it fell back to default; corrected to `1000`.
+
+### Verification
+- `ops:getReliabilitySnapshot` confirms:
+  - `bulkheads.openrouter_chat.maxConcurrent = 120`
+  - `rateLimits.chatStream.max = 1000`
+
+### Pre/Post Comparison (same 40-user pool, same scales)
+- **Pre-tuning standard**  
+  - report: `.output/reliability/load-drill-standard-2026-02-19T01-00-09-597Z.json`
+  - `total=180`, `p95=2353ms`, statuses `200=54, 500=1, 503=125`, `2xx=30.0%` -> FAIL
+- **Post-tuning standard**  
+  - report: `.output/reliability/load-drill-standard-2026-02-19T01-12-29-095Z.json`
+  - `total=180`, `p95=2024ms`, statuses `200=180`, `2xx=100%` -> PASS
+- **Pre-tuning burst**  
+  - report: `.output/reliability/load-drill-burst-2026-02-19T01-00-33-213Z.json`
+  - `total=600`, `p95=2519ms`, statuses `200=234, 503=366`, `2xx=39.0%` -> FAIL
+- **Post-tuning burst**  
+  - report: `.output/reliability/load-drill-burst-2026-02-19T01-12-53-365Z.json`
+  - `total=600`, `p95=2233ms`, statuses `200=600`, `2xx=100%` -> PASS
+
+### Post-Tuning Capacity Sweep
+- Generated fresh pool (`20` users):
+  - `.output/reliability/chat-auth-pool-loadtestmulti-20260219c-1-20.json`
+- Soak (`concurrency x10`) report:
+  - `.output/reliability/load-drill-soak-2026-02-19T01-31-17-360Z.json`
+  - `total=1366`, `p95=2102ms`, statuses `200=1366`, `2xx=100%` -> PASS
+- Burst (`load x80`, `concurrency x80`) report:
+  - `.output/reliability/load-drill-burst-2026-02-19T01-32-21-811Z.json`
+  - `total=2400`, `p95=4567ms`, statuses `200=2194, 429=206`, `2xx=91.42%` -> PASS
+- Burst (`load x100`, `concurrency x100`) report:
+  - `.output/reliability/load-drill-burst-2026-02-19T01-33-03-395Z.json`
+  - `total=3000`, `p95=5800ms`, statuses `200=2498, 429=501, 502=1`, `2xx=83.27%` -> FAIL (fails `minTwoXxRate`)
+
+### Findings
+- The tuning removed the prior `503`-dominated bottleneck at moderate/high burst profiles.
+- New practical plateau (with current SLO rule `2xx >= 90%`) is between:
+  - burst scale `x80` (PASS)
+  - burst scale `x100` (FAIL)
+- Under very high burst, degradation mode shifts from `503` saturation to `429` admission/rate-limit pressure while core latency remains within threshold.

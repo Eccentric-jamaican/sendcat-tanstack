@@ -48,6 +48,7 @@ import type * as integrations_types from "../integrations/types.js";
 import type * as integrations_whatsapp from "../integrations/whatsapp.js";
 import type * as integrations_whatsapp_messaging from "../integrations/whatsapp/messaging.js";
 import type * as integrations_whatsapp_verify from "../integrations/whatsapp/verify.js";
+import type * as lib_admissionControl from "../lib/admissionControl.js";
 import type * as lib_authGuards from "../lib/authGuards.js";
 import type * as lib_bulkhead from "../lib/bulkhead.js";
 import type * as lib_circuitBreaker from "../lib/circuitBreaker.js";
@@ -123,6 +124,7 @@ declare const fullApi: ApiFromModules<{
   "integrations/whatsapp": typeof integrations_whatsapp;
   "integrations/whatsapp/messaging": typeof integrations_whatsapp_messaging;
   "integrations/whatsapp/verify": typeof integrations_whatsapp_verify;
+  "lib/admissionControl": typeof lib_admissionControl;
   "lib/authGuards": typeof lib_authGuards;
   "lib/bulkhead": typeof lib_bulkhead;
   "lib/circuitBreaker": typeof lib_circuitBreaker;

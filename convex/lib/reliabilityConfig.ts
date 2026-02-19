@@ -66,6 +66,21 @@ type ToolJobConfig = {
   maxQueuedByTool: ToolJobCounts;
 };
 
+export type AdmissionControlConfig = {
+  enabled: boolean;
+  shadowMode: boolean;
+  redisUrl: string;
+  redisToken: string;
+  keyPrefix: string;
+  userMaxInFlight: number;
+  globalMaxInFlight: number;
+  globalMaxMessagesPerSecond: number;
+  globalMaxToolCallsPerSecond: number;
+  estimatedToolCallsPerMessage: number;
+  ticketTtlMs: number;
+  retryAfterMs: number;
+};
+
 const DEFAULT_RATE_LIMITS: RateLimitConfig = {
   chatStream: {
     max: 30,
@@ -139,6 +154,21 @@ const DEFAULT_BULKHEADS: BulkheadConfig = {
   },
 };
 
+const DEFAULT_ADMISSION_CONTROL: AdmissionControlConfig = {
+  enabled: false,
+  shadowMode: true,
+  redisUrl: "",
+  redisToken: "",
+  keyPrefix: "admit:chat",
+  userMaxInFlight: 1,
+  globalMaxInFlight: 300,
+  globalMaxMessagesPerSecond: 120,
+  globalMaxToolCallsPerSecond: 220,
+  estimatedToolCallsPerMessage: 2,
+  ticketTtlMs: 45_000,
+  retryAfterMs: 1_000,
+};
+
 function parsePositiveInt(
   value: string | undefined,
   fallback: number,
@@ -153,11 +183,31 @@ function parsePositiveInt(
   return rounded;
 }
 
+function parseBoolean(value: string | undefined, fallback: boolean) {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true" || normalized === "yes") {
+    return true;
+  }
+  if (normalized === "0" || normalized === "false" || normalized === "no") {
+    return false;
+  }
+  return fallback;
+}
+
 function parseNamespaceVersion(value: string | undefined, fallback: string) {
   if (!value) return fallback;
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return fallback;
   if (!/^[a-z0-9_-]{1,24}$/.test(trimmed)) return fallback;
+  return trimmed;
+}
+
+function parsePrefix(value: string | undefined, fallback: string) {
+  if (!value) return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  if (!/^[a-zA-Z0-9:_-]{1,64}$/.test(trimmed)) return fallback;
   return trimmed;
 }
 
@@ -534,6 +584,67 @@ export function getToolJobConfig(): ToolJobConfig {
         10_000,
       ),
     },
+  };
+}
+
+export function getAdmissionControlConfig(): AdmissionControlConfig {
+  return {
+    enabled: parseBoolean(
+      process.env.ADMISSION_REDIS_ENABLED,
+      DEFAULT_ADMISSION_CONTROL.enabled,
+    ),
+    shadowMode: parseBoolean(
+      process.env.ADMISSION_REDIS_SHADOW_MODE,
+      DEFAULT_ADMISSION_CONTROL.shadowMode,
+    ),
+    redisUrl: (process.env.ADMISSION_REDIS_URL ?? "").trim(),
+    redisToken: (process.env.ADMISSION_REDIS_TOKEN ?? "").trim(),
+    keyPrefix: parsePrefix(
+      process.env.ADMISSION_REDIS_KEY_PREFIX,
+      DEFAULT_ADMISSION_CONTROL.keyPrefix,
+    ),
+    userMaxInFlight: parsePositiveInt(
+      process.env.ADMISSION_USER_MAX_INFLIGHT,
+      DEFAULT_ADMISSION_CONTROL.userMaxInFlight,
+      1,
+      100,
+    ),
+    globalMaxInFlight: parsePositiveInt(
+      process.env.ADMISSION_GLOBAL_MAX_INFLIGHT,
+      DEFAULT_ADMISSION_CONTROL.globalMaxInFlight,
+      1,
+      100_000,
+    ),
+    globalMaxMessagesPerSecond: parsePositiveInt(
+      process.env.ADMISSION_GLOBAL_MAX_MSG_PER_SEC,
+      DEFAULT_ADMISSION_CONTROL.globalMaxMessagesPerSecond,
+      1,
+      100_000,
+    ),
+    globalMaxToolCallsPerSecond: parsePositiveInt(
+      process.env.ADMISSION_GLOBAL_MAX_TOOL_PER_SEC,
+      DEFAULT_ADMISSION_CONTROL.globalMaxToolCallsPerSecond,
+      1,
+      200_000,
+    ),
+    estimatedToolCallsPerMessage: parsePositiveInt(
+      process.env.ADMISSION_EST_TOOL_CALLS_PER_MSG,
+      DEFAULT_ADMISSION_CONTROL.estimatedToolCallsPerMessage,
+      0,
+      100,
+    ),
+    ticketTtlMs: parsePositiveInt(
+      process.env.ADMISSION_TICKET_TTL_MS,
+      DEFAULT_ADMISSION_CONTROL.ticketTtlMs,
+      1_000,
+      10 * 60 * 1000,
+    ),
+    retryAfterMs: parsePositiveInt(
+      process.env.ADMISSION_RETRY_AFTER_MS,
+      DEFAULT_ADMISSION_CONTROL.retryAfterMs,
+      100,
+      60_000,
+    ),
   };
 }
 import { ToolJobCounts } from "./toolJobQueue";

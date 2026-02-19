@@ -40,10 +40,16 @@ import {
   isRateLimitContentionError,
 } from "./lib/rateLimit";
 import {
+  getAdmissionControlConfig,
   getToolCacheConfig,
   getToolCacheNamespaces,
 } from "./lib/reliabilityConfig";
 import { enqueueToolJobAndWait } from "./lib/toolJobClient";
+import {
+  checkAndAcquireAdmission,
+  releaseAdmission,
+  type AdmissionTicket,
+} from "./lib/admissionControl";
 
  
 
@@ -217,18 +223,19 @@ export async function chatHandler(ctx: any, request: Request) {
     });
   }
 
-  const limitKey = `chat_stream:user:${userId}`;
-  const emitRateLimitEvent = async (
-    outcome: "blocked" | "contention_fallback",
-    retryAfterMs?: number,
-  ) => {
+  const emitRateLimitEvent = async (input: {
+    bucket: string;
+    key: string;
+    outcome: "blocked" | "contention_fallback";
+    retryAfterMs?: number;
+  }) => {
     try {
       await ctx.scheduler.runAfter(0, internal.rateLimit.recordEvent, {
         source: "chat_http",
-        bucket: "chat_stream",
-        key: limitKey,
-        outcome,
-        retryAfterMs,
+        bucket: input.bucket,
+        key: input.key,
+        outcome: input.outcome,
+        retryAfterMs: input.retryAfterMs,
         path: "/api/chat",
         method: request.method,
       });
@@ -237,38 +244,105 @@ export async function chatHandler(ctx: any, request: Request) {
     }
   };
 
-  const rateLimits = getRateLimits();
-  const toolCacheConfig = getToolCacheConfig();
-  const toolCacheNamespaces = getToolCacheNamespaces();
-  let limit;
-  try {
-    limit = await ctx.runMutation(internal.rateLimit.checkAndIncrement, {
-      key: limitKey,
-      max: rateLimits.chatStream.max,
-      windowMs: rateLimits.chatStream.windowMs,
+  const admissionConfig = getAdmissionControlConfig();
+  const admissionPrincipal = `user:${userId}`;
+  const admissionEventKey = `chat_admission:${admissionPrincipal}`;
+  let admissionTicket: AdmissionTicket | null = null;
+
+  if (admissionConfig.enabled) {
+    const estimatedToolCalls = webSearch
+      ? admissionConfig.estimatedToolCallsPerMessage
+      : Math.max(admissionConfig.estimatedToolCallsPerMessage - 1, 0);
+    const admissionMode = admissionConfig.shadowMode ? "shadow" : "enforce";
+    const admissionResult = await checkAndAcquireAdmission({
+      principalKey: admissionPrincipal,
+      mode: admissionMode,
+      estimatedToolCalls,
+      config: admissionConfig,
     });
-  } catch (error) {
-    if (isRateLimitContentionError(error)) {
-      await emitRateLimitEvent("contention_fallback", 1000);
+
+    if (admissionResult.mode === "shadow") {
+      if (admissionResult.wouldBlock) {
+        await emitRateLimitEvent({
+          bucket: "chat_admission_shadow",
+          key: admissionEventKey,
+          outcome:
+            admissionResult.reason === "redis_unavailable"
+              ? "contention_fallback"
+              : "blocked",
+          retryAfterMs: admissionResult.retryAfterMs,
+        });
+      }
+    } else if (admissionResult.mode === "enforce" && !admissionResult.allowed) {
+      await emitRateLimitEvent({
+        bucket: "chat_admission",
+        key: admissionEventKey,
+        outcome:
+          admissionResult.reason === "redis_unavailable"
+            ? "contention_fallback"
+            : "blocked",
+        retryAfterMs: admissionResult.retryAfterMs,
+      });
       return createHttpErrorResponse({
         status: 429,
         code: "rate_limited",
-        message: "Too many requests. Please retry in a moment.",
-        headers: { "Retry-After": "1" },
+        message: buildRateLimitErrorMessage(admissionResult.retryAfterMs),
+        headers: {
+          "Retry-After": buildRetryAfterSeconds(admissionResult.retryAfterMs),
+        },
+      });
+    } else if (admissionResult.mode === "enforce") {
+      admissionTicket = admissionResult.ticket;
+    }
+  }
+
+  const shouldUseLegacyRateLimit =
+    !admissionConfig.enabled || admissionConfig.shadowMode;
+  const rateLimits = getRateLimits();
+  const toolCacheConfig = getToolCacheConfig();
+  const toolCacheNamespaces = getToolCacheNamespaces();
+  if (shouldUseLegacyRateLimit) {
+    const limitKey = `chat_stream:user:${userId}`;
+    let limit;
+    try {
+      limit = await ctx.runMutation(internal.rateLimit.checkAndIncrement, {
+        key: limitKey,
+        max: rateLimits.chatStream.max,
+        windowMs: rateLimits.chatStream.windowMs,
+      });
+    } catch (error) {
+      if (isRateLimitContentionError(error)) {
+        await emitRateLimitEvent({
+          bucket: "chat_stream",
+          key: limitKey,
+          outcome: "contention_fallback",
+          retryAfterMs: 1000,
+        });
+        return createHttpErrorResponse({
+          status: 429,
+          code: "rate_limited",
+          message: "Too many requests. Please retry in a moment.",
+          headers: { "Retry-After": "1" },
+        });
+      }
+      throw error;
+    }
+    if (!limit.allowed) {
+      await emitRateLimitEvent({
+        bucket: "chat_stream",
+        key: limitKey,
+        outcome: "blocked",
+        retryAfterMs: limit.retryAfterMs,
+      });
+      return createHttpErrorResponse({
+        status: 429,
+        code: "rate_limited",
+        message: buildRateLimitErrorMessage(limit.retryAfterMs),
+        headers: {
+          "Retry-After": buildRetryAfterSeconds(limit.retryAfterMs),
+        },
       });
     }
-    throw error;
-  }
-  if (!limit.allowed) {
-    await emitRateLimitEvent("blocked", limit.retryAfterMs);
-    return createHttpErrorResponse({
-      status: 429,
-      code: "rate_limited",
-      message: buildRateLimitErrorMessage(limit.retryAfterMs),
-      headers: {
-        "Retry-After": buildRetryAfterSeconds(limit.retryAfterMs),
-      },
-    });
   }
 
   let openRouterSessionLease: string | null = null;
@@ -278,6 +352,11 @@ export async function chatHandler(ctx: any, request: Request) {
       "openrouter_chat",
     );
   } catch (error) {
+    await releaseAdmission({
+      ticket: admissionTicket,
+      config: admissionConfig,
+    });
+    admissionTicket = null;
     if (error instanceof BulkheadSaturatedError) {
       return createHttpErrorResponse({
         status: 503,
@@ -1201,6 +1280,11 @@ export async function chatHandler(ctx: any, request: Request) {
           "openrouter_chat",
           openRouterSessionLease,
         );
+        await releaseAdmission({
+          ticket: admissionTicket,
+          config: admissionConfig,
+        });
+        admissionTicket = null;
         controller.close();
       }
     },

@@ -15,6 +15,8 @@ const ALERT_RULES = [
   { bucket: "gmail_push", outcome: "contention_fallback", threshold: 5 },
   { bucket: "chat_stream", outcome: "blocked", threshold: 25 },
   { bucket: "chat_stream", outcome: "contention_fallback", threshold: 3 },
+  { bucket: "chat_admission", outcome: "blocked", threshold: 25 },
+  { bucket: "chat_admission", outcome: "contention_fallback", threshold: 3 },
 ] as const;
 
 function parseSentryDsn(dsn: string) {

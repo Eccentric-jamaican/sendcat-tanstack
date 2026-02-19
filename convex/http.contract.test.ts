@@ -171,6 +171,27 @@ describe("/api/chat contract", () => {
     expect(response.headers.get("Retry-After")).toBe("2");
   });
 
+  test("returns rate_limited when redis admission is enforced but unavailable", async () => {
+    process.env.OPENROUTER_API_KEY = "test-key";
+    process.env.ADMISSION_REDIS_ENABLED = "true";
+    process.env.ADMISSION_REDIS_SHADOW_MODE = "false";
+    delete process.env.ADMISSION_REDIS_URL;
+    delete process.env.ADMISSION_REDIS_TOKEN;
+
+    const response = await chatHandler(
+      createCtx(),
+      new Request("https://example.com/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId: "t_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get(HTTP_ERROR_CODE_HEADER)).toBe("rate_limited");
+    expect(response.headers.get("Retry-After")).toBe("1");
+  });
+
   test("maps thrown handler failures to internal_error in route wrapper", async () => {
     const response = await chatPostHandler(
       {} as any,

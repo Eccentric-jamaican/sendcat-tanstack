@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import {
+  getAdmissionControlConfig,
   getBulkheadConfig,
   getCircuitConfig,
   getRateLimitConfig,
@@ -33,6 +34,17 @@ describe("reliabilityConfig", () => {
     delete process.env.TOOL_JOB_QMAX_GLOB;
     delete process.env.CIRCUIT_OPENROUTER_THRESHOLD;
     delete process.env.BULKHEAD_OPENROUTER_MAX_CONCURRENT;
+    delete process.env.ADMISSION_REDIS_ENABLED;
+    delete process.env.ADMISSION_REDIS_SHADOW_MODE;
+    delete process.env.ADMISSION_REDIS_URL;
+    delete process.env.ADMISSION_REDIS_TOKEN;
+    delete process.env.ADMISSION_REDIS_KEY_PREFIX;
+    delete process.env.ADMISSION_GLOBAL_MAX_INFLIGHT;
+    delete process.env.ADMISSION_GLOBAL_MAX_MSG_PER_SEC;
+    delete process.env.ADMISSION_GLOBAL_MAX_TOOL_PER_SEC;
+    delete process.env.ADMISSION_EST_TOOL_CALLS_PER_MSG;
+    delete process.env.ADMISSION_TICKET_TTL_MS;
+    delete process.env.ADMISSION_RETRY_AFTER_MS;
 
     expect(getRateLimitConfig().chatStream.max).toBe(30);
     expect(getRateLimitConfig().whatsappLinkingCode.max).toBe(5);
@@ -49,6 +61,17 @@ describe("reliabilityConfig", () => {
     expect(getToolJobConfig().maxQueuedByTool.search_products).toBe(80);
     expect(getCircuitConfig().openrouter_chat.threshold).toBe(5);
     expect(getBulkheadConfig().openrouter_chat.maxConcurrent).toBe(24);
+    expect(getAdmissionControlConfig()).toMatchObject({
+      enabled: false,
+      shadowMode: true,
+      keyPrefix: "admit:chat",
+      globalMaxInFlight: 300,
+      globalMaxMessagesPerSecond: 120,
+      globalMaxToolCallsPerSecond: 220,
+      estimatedToolCallsPerMessage: 2,
+      ticketTtlMs: 45000,
+      retryAfterMs: 1000,
+    });
   });
 
   test("applies env overrides for knobs", () => {
@@ -74,6 +97,17 @@ describe("reliabilityConfig", () => {
     process.env.CIRCUIT_OPENROUTER_COOLDOWN_MS = "300000";
     process.env.BULKHEAD_OPENROUTER_MAX_CONCURRENT = "40";
     process.env.BULKHEAD_OPENROUTER_LEASE_TTL_MS = "240000";
+    process.env.ADMISSION_REDIS_ENABLED = "true";
+    process.env.ADMISSION_REDIS_SHADOW_MODE = "false";
+    process.env.ADMISSION_REDIS_URL = "https://demo.upstash.io";
+    process.env.ADMISSION_REDIS_TOKEN = "token";
+    process.env.ADMISSION_REDIS_KEY_PREFIX = "admit:test";
+    process.env.ADMISSION_GLOBAL_MAX_INFLIGHT = "800";
+    process.env.ADMISSION_GLOBAL_MAX_MSG_PER_SEC = "250";
+    process.env.ADMISSION_GLOBAL_MAX_TOOL_PER_SEC = "450";
+    process.env.ADMISSION_EST_TOOL_CALLS_PER_MSG = "3";
+    process.env.ADMISSION_TICKET_TTL_MS = "60000";
+    process.env.ADMISSION_RETRY_AFTER_MS = "1500";
 
     expect(getRateLimitConfig().chatStream).toEqual({
       max: 45,
@@ -113,6 +147,19 @@ describe("reliabilityConfig", () => {
       maxConcurrent: 40,
       leaseTtlMs: 240000,
     });
+    expect(getAdmissionControlConfig()).toMatchObject({
+      enabled: true,
+      shadowMode: false,
+      redisUrl: "https://demo.upstash.io",
+      redisToken: "token",
+      keyPrefix: "admit:test",
+      globalMaxInFlight: 800,
+      globalMaxMessagesPerSecond: 250,
+      globalMaxToolCallsPerSecond: 450,
+      estimatedToolCallsPerMessage: 3,
+      ticketTtlMs: 60000,
+      retryAfterMs: 1500,
+    });
   });
 
   test("falls back on invalid env values", () => {
@@ -133,6 +180,15 @@ describe("reliabilityConfig", () => {
     process.env.TOOL_JOB_QMAX_GLOB = "200000";
     process.env.CIRCUIT_OPENROUTER_THRESHOLD = "NaN";
     process.env.BULKHEAD_OPENROUTER_MAX_CONCURRENT = "100000";
+    process.env.ADMISSION_REDIS_ENABLED = "not-bool";
+    process.env.ADMISSION_REDIS_SHADOW_MODE = "wat";
+    process.env.ADMISSION_REDIS_KEY_PREFIX = "bad prefix with spaces";
+    process.env.ADMISSION_GLOBAL_MAX_INFLIGHT = "-10";
+    process.env.ADMISSION_GLOBAL_MAX_MSG_PER_SEC = "abc";
+    process.env.ADMISSION_GLOBAL_MAX_TOOL_PER_SEC = "0";
+    process.env.ADMISSION_EST_TOOL_CALLS_PER_MSG = "999";
+    process.env.ADMISSION_TICKET_TTL_MS = "0";
+    process.env.ADMISSION_RETRY_AFTER_MS = "-20";
 
     expect(getRateLimitConfig().chatStream.max).toBe(30);
     expect(getRateLimitConfig().whatsappLinkingCode.max).toBe(5);
@@ -149,5 +205,16 @@ describe("reliabilityConfig", () => {
     expect(getToolJobConfig().maxQueuedByTool.search_global).toBe(40);
     expect(getCircuitConfig().openrouter_chat.threshold).toBe(5);
     expect(getBulkheadConfig().openrouter_chat.maxConcurrent).toBe(24);
+    expect(getAdmissionControlConfig()).toMatchObject({
+      enabled: false,
+      shadowMode: true,
+      keyPrefix: "admit:chat",
+      globalMaxInFlight: 300,
+      globalMaxMessagesPerSecond: 120,
+      globalMaxToolCallsPerSecond: 220,
+      estimatedToolCallsPerMessage: 2,
+      ticketTtlMs: 45000,
+      retryAfterMs: 1000,
+    });
   });
 });

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
+  getAdmissionControlConfig,
   getBulkheadConfig,
   getCircuitConfig,
   getOpsSnapshotConfig,
@@ -115,6 +116,7 @@ export const getReliabilitySnapshot = internalQuery({
         rateLimits: getRateLimitConfig(),
         circuits: getCircuitConfig(),
         bulkheads: getBulkheadConfig(),
+        admission: getAdmissionControlConfig(),
         toolCache: getToolCacheConfig(),
         toolCacheNamespaces: getToolCacheNamespaces(),
         toolJobs: getToolJobConfig(),

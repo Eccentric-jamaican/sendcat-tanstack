@@ -37,6 +37,12 @@ npm run reliability:gameday
 npm run reliability:dashboard
 ```
 
+Generate a multi-user chat auth pool (for pressure tests):
+
+```bash
+npm run reliability:pool -- --count=40 --app-origin=http://localhost:3000 --convex-url=https://admired-antelope-676.convex.cloud --prefix=loadtestmulti --seed=20260219a
+```
+
 Quick smoke:
 
 ```bash
@@ -56,6 +62,12 @@ Run specific scenario(s):
 ```bash
 npm run reliability:drill -- --scenarios=chat_stream_http
 npm run reliability:drill -- --scenarios=gmail_push_webhook,whatsapp_webhook
+```
+
+Multi-user chat pressure drill (round-robin token/thread pool):
+
+```bash
+npm run reliability:drill -- --profile=burst --scenarios=chat_stream_http --chat-auth-pool-file=.output/reliability/chat-auth-pool-loadtestmulti-20260219a-1-40.json --chat-load-scale=20 --chat-concurrency-scale=20
 ```
 
 Release gate (synthetic probes + load drill + live snapshot checks):
@@ -88,8 +100,16 @@ npm run reliability:drill -- --base-url=https://admired-antelope-676.convex.site
 - `RELIABILITY_BASE_URL`: Convex site URL used for HTTP load drills.
 - `RELIABILITY_AUTH_TOKEN`: Better Auth bearer token for `/api/chat` load scenario.
 - `RELIABILITY_THREAD_ID`: existing thread id for `/api/chat`.
+- `RELIABILITY_CHAT_AUTH_POOL_FILE`: optional JSON file containing `{ authToken, threadId }[]` for multi-user chat drills.
+- `RELIABILITY_CHAT_AUTH_POOL_JSON`: optional JSON array (same shape) as inline alternative.
 - `GMAIL_PUBSUB_VERIFY_TOKEN`: optional; when present the Gmail push drill sends the query token.
 - `WHATSAPP_APP_SECRET`: optional; when present WhatsApp drill signs payloads.
+
+### Chat stage scaling flags (CLI)
+
+- `--chat-load-scale=<number>`: multiplies chat stage request totals.
+- `--chat-concurrency-scale=<number>`: multiplies chat stage concurrency.
+- `--chat-duration-scale=<number>`: multiplies chat stage duration.
 
 ## Runtime Reliability Knobs (Convex env vars)
 
@@ -112,6 +132,19 @@ npm run reliability:drill -- --base-url=https://admired-antelope-676.convex.site
   - `BULKHEAD_EBAY_MAX_CONCURRENT`, `BULKHEAD_EBAY_LEASE_TTL_MS`
   - `BULKHEAD_GLOBAL_SEARCH_MAX_CONCURRENT`, `BULKHEAD_GLOBAL_SEARCH_LEASE_TTL_MS`
   - `BULKHEAD_SENTRY_COOLDOWN_MS`
+- Redis admission control:
+  - `ADMISSION_REDIS_ENABLED`
+  - `ADMISSION_REDIS_SHADOW_MODE`
+  - `ADMISSION_REDIS_URL`
+  - `ADMISSION_REDIS_TOKEN`
+  - `ADMISSION_REDIS_KEY_PREFIX`
+  - `ADMISSION_USER_MAX_INFLIGHT`
+  - `ADMISSION_GLOBAL_MAX_INFLIGHT`
+  - `ADMISSION_GLOBAL_MAX_MSG_PER_SEC`
+  - `ADMISSION_GLOBAL_MAX_TOOL_PER_SEC`
+  - `ADMISSION_EST_TOOL_CALLS_PER_MSG`
+  - `ADMISSION_TICKET_TTL_MS`
+  - `ADMISSION_RETRY_AFTER_MS`
 - Snapshot defaults:
   - `OPS_DEFAULT_WINDOW_MINUTES`, `OPS_MAX_ROWS_PER_SECTION`
 - Tool cache:
@@ -174,6 +207,7 @@ cat scripts/reliability/canary-policy.json
 JSON report files are written to:
 
 - `.output/reliability/load-drill-<profile>-<timestamp>.json`
+- `.output/reliability/chat-auth-pool-<prefix>-<seed>-<start>-<count>.json`
 - `.output/reliability/synthetic-probes-<timestamp>.json`
 - `.output/reliability/release-gate-<timestamp>.json`
 - `.output/reliability/canary-check-<timestamp>.json`
@@ -205,3 +239,4 @@ Each report includes:
   - `5xx rate <= 5%`
   - `network error rate <= 5%`
   - `unknown status rate <= 10%`
+  - `2xx success rate >= 90%`

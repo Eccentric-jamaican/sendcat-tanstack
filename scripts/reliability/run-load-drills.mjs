@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHmac } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "./parseArgs.mjs";
 
@@ -123,6 +123,12 @@ async function runStage({ name, total, durationMs, concurrency, makeRequest }) {
 
 function evaluateSlo(summary, slo) {
   const total = summary.totalRequests;
+  const twoXx = Object.entries(summary.statuses)
+    .filter(([status]) => {
+      const code = Number(status);
+      return code >= 200 && code < 300;
+    })
+    .reduce((acc, [, count]) => acc + count, 0);
   const fiveXx = Object.entries(summary.statuses)
     .filter(([status]) => Number(status) >= 500)
     .reduce((acc, [, count]) => acc + count, 0);
@@ -136,6 +142,7 @@ function evaluateSlo(summary, slo) {
   );
 
   const fiveXxRate = total > 0 ? fiveXx / total : 0;
+  const twoXxRate = total > 0 ? twoXx / total : 0;
   const networkErrorRate = total > 0 ? networkErrors / total : 0;
   const unknownStatusRate = total > 0 ? unknownStatus / total : 0;
   const p95Ms = summary.latency.p95Ms;
@@ -166,6 +173,14 @@ function evaluateSlo(summary, slo) {
       threshold: slo.maxUnknownStatusRate,
     },
   ];
+  if (typeof slo.minTwoXxRate === "number") {
+    checks.push({
+      name: "2xx_success_rate",
+      pass: twoXxRate >= slo.minTwoXxRate,
+      actual: Number(twoXxRate.toFixed(4)),
+      threshold: slo.minTwoXxRate,
+    });
+  }
 
   return {
     pass: checks.every((c) => c.pass),
@@ -271,23 +286,43 @@ function createStagesForProfile(profile) {
   }
 }
 
-function createChatStages(profile) {
+function createChatStages(profile, options) {
+  const loadScale = Math.max(0.1, toNumber(options?.loadScale, 1));
+  const concurrencyScale = Math.max(
+    0.1,
+    toNumber(options?.concurrencyScale, 1),
+  );
+  const durationScale = Math.max(0.1, toNumber(options?.durationScale, 1));
+
+  let base;
   if (profile === "quick") {
-    return [{ name: "quick", total: 3, concurrency: 1 }];
-  }
-  if (profile === "burst") {
-    return [
+    base = [{ name: "quick", total: 3, concurrency: 1 }];
+  } else if (profile === "burst") {
+    base = [
       { name: "warmup", total: 6, concurrency: 2, pauseAfterMs: 250 },
       { name: "burst", total: 24, concurrency: 6 },
     ];
+  } else if (profile === "soak") {
+    base = [{ name: "soak", durationMs: 90_000, concurrency: 2 }];
+  } else {
+    base = [
+      { name: "low", total: 6, concurrency: 2, pauseAfterMs: 200 },
+      { name: "medium", total: 12, concurrency: 3 },
+    ];
   }
-  if (profile === "soak") {
-    return [{ name: "soak", durationMs: 90_000, concurrency: 2 }];
-  }
-  return [
-    { name: "low", total: 6, concurrency: 2, pauseAfterMs: 200 },
-    { name: "medium", total: 12, concurrency: 3 },
-  ];
+
+  return base.map((stage) => ({
+    ...stage,
+    total:
+      typeof stage.total === "number"
+        ? Math.max(1, Math.round(stage.total * loadScale))
+        : stage.total,
+    durationMs:
+      typeof stage.durationMs === "number"
+        ? Math.max(1_000, Math.round(stage.durationMs * durationScale))
+        : stage.durationMs,
+    concurrency: Math.max(1, Math.round(stage.concurrency * concurrencyScale)),
+  }));
 }
 
 function parseScenarioFilter(value) {
@@ -297,6 +332,54 @@ function parseScenarioFilter(value) {
     .map((s) => s.trim())
     .filter(Boolean);
   return raw.length > 0 ? new Set(raw) : null;
+}
+
+function normalizePoolEntry(entry, index) {
+  if (!entry || typeof entry !== "object") {
+    throw new Error(`Invalid chat auth pool entry at index ${index}`);
+  }
+  const authToken =
+    typeof entry.authToken === "string"
+      ? entry.authToken.trim()
+      : typeof entry.token === "string"
+        ? entry.token.trim()
+        : "";
+  const threadId =
+    typeof entry.threadId === "string" ? entry.threadId.trim() : "";
+  if (!authToken || !threadId) {
+    throw new Error(
+      `Chat auth pool entry ${index} is missing authToken/token or threadId`,
+    );
+  }
+  return {
+    authToken,
+    threadId,
+    userLabel:
+      typeof entry.userLabel === "string" && entry.userLabel.trim()
+        ? entry.userLabel.trim()
+        : undefined,
+  };
+}
+
+async function loadChatAuthPool({ poolFile, poolJson }) {
+  if (poolJson && poolJson.trim().length > 0) {
+    const parsed = JSON.parse(poolJson);
+    if (!Array.isArray(parsed)) {
+      throw new Error("RELIABILITY_CHAT_AUTH_POOL_JSON must be a JSON array.");
+    }
+    return parsed.map((entry, i) => normalizePoolEntry(entry, i));
+  }
+
+  if (poolFile && poolFile.trim().length > 0) {
+    const raw = await readFile(resolve(poolFile), "utf8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new Error("chat auth pool file must be a JSON array.");
+    }
+    return parsed.map((entry, i) => normalizePoolEntry(entry, i));
+  }
+
+  return [];
 }
 
 async function main() {
@@ -321,11 +404,36 @@ async function main() {
     args.get("auth-token") || process.env.RELIABILITY_AUTH_TOKEN || "";
   const threadId =
     args.get("thread-id") || process.env.RELIABILITY_THREAD_ID || "";
+  const chatAuthPoolFile =
+    args.get("chat-auth-pool-file") ||
+    process.env.RELIABILITY_CHAT_AUTH_POOL_FILE ||
+    "";
+  const chatAuthPoolJson =
+    args.get("chat-auth-pool-json") ||
+    process.env.RELIABILITY_CHAT_AUTH_POOL_JSON ||
+    "";
+  const chatLoadScale = Math.max(
+    0.1,
+    toNumber(args.get("chat-load-scale"), 1),
+  );
+  const chatConcurrencyScale = Math.max(
+    0.1,
+    toNumber(args.get("chat-concurrency-scale"), 1),
+  );
+  const chatDurationScale = Math.max(
+    0.1,
+    toNumber(args.get("chat-duration-scale"), 1),
+  );
   const gmailVerifyToken =
     args.get("gmail-token") || process.env.GMAIL_PUBSUB_VERIFY_TOKEN || "";
   const whatsappAppSecret =
     args.get("whatsapp-secret") || process.env.WHATSAPP_APP_SECRET || "";
   const stages = createStagesForProfile(profile);
+  const chatAuthPool = await loadChatAuthPool({
+    poolFile: chatAuthPoolFile,
+    poolJson: chatAuthPoolJson,
+  });
+  const hasChatAuthPool = chatAuthPool.length > 0;
 
   const scenarios = [
     {
@@ -418,30 +526,42 @@ async function main() {
       name: "chat_stream_http",
       enabled:
         (!scenarioFilter || scenarioFilter.has("chat_stream_http")) &&
-        Boolean(authToken && threadId),
+        (hasChatAuthPool || Boolean(authToken && threadId)),
       skipReason:
-        "Set RELIABILITY_AUTH_TOKEN and RELIABILITY_THREAD_ID to enable chat load drill.",
-      stages: createChatStages(profile),
+        "Set RELIABILITY_AUTH_TOKEN + RELIABILITY_THREAD_ID, or provide a chat auth pool file/json, to enable chat load drill.",
+      stages: createChatStages(profile, {
+        loadScale: chatLoadScale,
+        concurrencyScale: chatConcurrencyScale,
+        durationScale: chatDurationScale,
+      }),
       slo: {
         maxP95Ms: 12_000,
         maxFiveXxRate: 0.05,
         maxNetworkErrorRate: 0.05,
         maxUnknownStatusRate: 0.1,
+        minTwoXxRate: 0.9,
         allowedStatuses: [200, 401, 429, 503],
       },
-      makeRequest: () =>
-        fetch(withPath(baseUrl, "/api/chat"), {
+      makeRequest: (i) => {
+        const auth = hasChatAuthPool
+          ? chatAuthPool[i % chatAuthPool.length].authToken
+          : authToken;
+        const targetThreadId = hasChatAuthPool
+          ? chatAuthPool[i % chatAuthPool.length].threadId
+          : threadId;
+        return fetch(withPath(baseUrl, "/api/chat"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
+            Authorization: `Bearer ${auth}`,
           },
           body: JSON.stringify({
-            threadId,
+            threadId: targetThreadId,
             modelId: "moonshotai/kimi-k2.5",
             webSearch: false,
           }),
-        }),
+        });
+      },
     },
   ];
 
@@ -464,6 +584,12 @@ async function main() {
     quickMode,
     profile,
     scenarioFilter: scenarioFilter ? Array.from(scenarioFilter) : null,
+    chatAuthPoolSize: hasChatAuthPool ? chatAuthPool.length : 0,
+    chatStageScale: {
+      load: chatLoadScale,
+      concurrency: chatConcurrencyScale,
+      duration: chatDurationScale,
+    },
     scenarios: scenarioResults,
     passed,
   };

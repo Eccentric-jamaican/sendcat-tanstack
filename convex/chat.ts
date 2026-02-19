@@ -33,10 +33,16 @@ import {
   isRateLimitContentionError,
 } from "./lib/rateLimit";
 import {
+  getAdmissionControlConfig,
   getToolCacheConfig,
   getToolCacheNamespaces,
 } from "./lib/reliabilityConfig";
 import { enqueueToolJobAndWait } from "./lib/toolJobClient";
+import {
+  checkAndAcquireAdmission,
+  releaseAdmission,
+  type AdmissionTicket,
+} from "./lib/admissionControl";
 
 const TOOLS = [
   {
@@ -215,43 +221,101 @@ export const streamAnswer = action({
     if (!principal) {
       throw new Error("Missing identity for rate limiting");
     }
-    const limitKey = `chat_stream:${principal}`;
-    const emitRateLimitEvent = async (
-      outcome: "blocked" | "contention_fallback",
-      retryAfterMs?: number,
-    ) => {
+    const emitRateLimitEvent = async (input: {
+      bucket: string;
+      key: string;
+      outcome: "blocked" | "contention_fallback";
+      retryAfterMs?: number;
+    }) => {
       try {
         await ctx.scheduler.runAfter(0, internal.rateLimit.recordEvent, {
           source: "chat_action",
-          bucket: "chat_stream",
-          key: limitKey,
-          outcome,
-          retryAfterMs,
+          bucket: input.bucket,
+          key: input.key,
+          outcome: input.outcome,
+          retryAfterMs: input.retryAfterMs,
         });
       } catch {
         // Observability should not interrupt the request flow.
       }
     };
+    const admissionConfig = getAdmissionControlConfig();
+    const admissionEventKey = `chat_admission:${principal}`;
+    let admissionTicket: AdmissionTicket | null = null;
+    if (admissionConfig.enabled) {
+      const estimatedToolCalls = args.webSearch
+        ? admissionConfig.estimatedToolCallsPerMessage
+        : Math.max(admissionConfig.estimatedToolCallsPerMessage - 1, 0);
+      const admissionMode = admissionConfig.shadowMode ? "shadow" : "enforce";
+      const admissionResult = await checkAndAcquireAdmission({
+        principalKey: principal,
+        mode: admissionMode,
+        estimatedToolCalls,
+        config: admissionConfig,
+      });
+      if (admissionResult.mode === "shadow") {
+        if (admissionResult.wouldBlock) {
+          await emitRateLimitEvent({
+            bucket: "chat_admission_shadow",
+            key: admissionEventKey,
+            outcome:
+              admissionResult.reason === "redis_unavailable"
+                ? "contention_fallback"
+                : "blocked",
+            retryAfterMs: admissionResult.retryAfterMs,
+          });
+        }
+      } else if (admissionResult.mode === "enforce" && !admissionResult.allowed) {
+        await emitRateLimitEvent({
+          bucket: "chat_admission",
+          key: admissionEventKey,
+          outcome:
+            admissionResult.reason === "redis_unavailable"
+              ? "contention_fallback"
+              : "blocked",
+          retryAfterMs: admissionResult.retryAfterMs,
+        });
+        throw new Error(buildRateLimitErrorMessage(admissionResult.retryAfterMs));
+      } else if (admissionResult.mode === "enforce") {
+        admissionTicket = admissionResult.ticket;
+      }
+    }
+
+    const shouldUseLegacyRateLimit =
+      !admissionConfig.enabled || admissionConfig.shadowMode;
     const rateLimits = getRateLimits();
     const toolCacheConfig = getToolCacheConfig();
     const toolCacheNamespaces = getToolCacheNamespaces();
-    let limit;
-    try {
-      limit = await ctx.runMutation(internal.rateLimit.checkAndIncrement, {
-        key: limitKey,
-        max: rateLimits.chatStream.max,
-        windowMs: rateLimits.chatStream.windowMs,
-      });
-    } catch (error) {
-      if (isRateLimitContentionError(error)) {
-        await emitRateLimitEvent("contention_fallback", 1000);
-        throw new Error("Too many requests. Please retry in a moment.");
+    if (shouldUseLegacyRateLimit) {
+      const limitKey = `chat_stream:${principal}`;
+      let limit;
+      try {
+        limit = await ctx.runMutation(internal.rateLimit.checkAndIncrement, {
+          key: limitKey,
+          max: rateLimits.chatStream.max,
+          windowMs: rateLimits.chatStream.windowMs,
+        });
+      } catch (error) {
+        if (isRateLimitContentionError(error)) {
+          await emitRateLimitEvent({
+            bucket: "chat_stream",
+            key: limitKey,
+            outcome: "contention_fallback",
+            retryAfterMs: 1000,
+          });
+          throw new Error("Too many requests. Please retry in a moment.");
+        }
+        throw error;
       }
-      throw error;
-    }
-    if (!limit.allowed) {
-      await emitRateLimitEvent("blocked", limit.retryAfterMs);
-      throw new Error(buildRateLimitErrorMessage(limit.retryAfterMs));
+      if (!limit.allowed) {
+        await emitRateLimitEvent({
+          bucket: "chat_stream",
+          key: limitKey,
+          outcome: "blocked",
+          retryAfterMs: limit.retryAfterMs,
+        });
+        throw new Error(buildRateLimitErrorMessage(limit.retryAfterMs));
+      }
     }
 
     // Content buffering for reduced DB writes
@@ -323,6 +387,11 @@ export const streamAnswer = action({
 
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
+      await releaseAdmission({
+        ticket: admissionTicket,
+        config: admissionConfig,
+      });
+      admissionTicket = null;
       const msgId = await ctx.runMutation(
         internal.messages.internalInitializeAssistantMessage,
         {
@@ -1230,6 +1299,10 @@ export const streamAnswer = action({
         "openrouter_chat",
         openRouterSessionLease,
       );
+      await releaseAdmission({
+        ticket: admissionTicket,
+        config: admissionConfig,
+      });
     }
   },
 });
