@@ -1,6 +1,12 @@
 import { getAttachment } from "./api";
 import type { GmailHeader, GmailMessageFull, GmailMessagePart } from "./types";
 
+type BufferLike = {
+  from: (value: string, encoding: string) => {
+    toString: (encoding: string) => string;
+  };
+};
+
 function normalizeBase64Url(data: string): string {
   return data.replace(/-/g, "+").replace(/_/g, "/");
 }
@@ -9,11 +15,16 @@ export function decodeBase64Url(data?: string): string {
   if (!data) return "";
   const normalized = normalizeBase64Url(data);
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-  const atobFn =
-    typeof atob === "function"
-      ? atob
-      : (value: string) =>
-          (globalThis as any).Buffer.from(value, "base64").toString("binary");
+  const buffer = (globalThis as typeof globalThis & { Buffer?: BufferLike })
+    .Buffer;
+  const atobFn = typeof atob === "function"
+    ? atob
+    : (value: string) => {
+        if (!buffer) {
+          throw new Error("No base64 decoder available");
+        }
+        return buffer.from(value, "base64").toString("binary");
+      };
 
   const binary = atobFn(padded);
   const bytes = new Uint8Array(binary.length);

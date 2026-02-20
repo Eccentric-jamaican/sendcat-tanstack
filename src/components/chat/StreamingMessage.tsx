@@ -16,12 +16,43 @@ interface StreamingMessageProps {
   messageId: string;
   content: string; // From DB (completed)
   reasoningContent?: string; // From DB
-  toolCalls?: any[]; // From DB
+  toolCalls?: ToolCall[]; // From DB
   toolResults?: Record<string, string>; // Map of toolCallId -> result content
   products?: Product[]; // From DB
   isStreaming: boolean;
   onOpenExpanded?: (products: Product[]) => void;
 }
+
+type ToolCall = {
+  id: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+  type?: string;
+  state?: "streaming" | "completed" | "error";
+};
+
+type StreamingContentDetail = { messageId: string; content: string };
+type StreamingReasoningDetail = { messageId: string; content: string };
+type StreamingToolCallDetail = {
+  messageId: string;
+  toolCallId: string;
+  toolName: string;
+  args?: string;
+  state?: "streaming" | "completed" | "error";
+};
+type StreamingToolOutputDetail = {
+  messageId: string;
+  toolCallId: string;
+  output: unknown;
+};
+type StreamingToolInputUpdateDetail = {
+  messageId: string;
+  toolCallId: string;
+  argsSnapshot?: string;
+  argsDelta?: string;
+};
 
 export const StreamingMessage = ({
   messageId,
@@ -35,9 +66,9 @@ export const StreamingMessage = ({
 }: StreamingMessageProps) => {
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingReasoning, setStreamingReasoning] = useState("");
-  const [streamingToolCalls, setStreamingToolCalls] = useState<any[]>([]);
+  const [streamingToolCalls, setStreamingToolCalls] = useState<ToolCall[]>([]);
   const [streamingToolResults, setStreamingToolResults] = useState<
-    Record<string, any>
+    Record<string, unknown>
   >({});
 
   useEffect(() => {
@@ -45,28 +76,31 @@ export const StreamingMessage = ({
       return;
     }
 
-    const handleContent = (event: CustomEvent) => {
-      if (event.detail.messageId === messageId) {
-        setStreamingContent((prev) => prev + event.detail.content);
+    const handleContent: EventListener = (event) => {
+      const detail = (event as CustomEvent<StreamingContentDetail>).detail;
+      if (detail.messageId === messageId) {
+        setStreamingContent((prev) => prev + detail.content);
       }
     };
 
-    const handleReasoning = (event: CustomEvent) => {
-      if (event.detail.messageId === messageId) {
-        setStreamingReasoning((prev) => prev + event.detail.content);
+    const handleReasoning: EventListener = (event) => {
+      const detail = (event as CustomEvent<StreamingReasoningDetail>).detail;
+      if (detail.messageId === messageId) {
+        setStreamingReasoning((prev) => prev + detail.content);
       }
     };
 
-    const handleToolCall = (event: CustomEvent) => {
-      if (event.detail.messageId === messageId) {
+    const handleToolCall: EventListener = (event) => {
+      const detail = (event as CustomEvent<StreamingToolCallDetail>).detail;
+      if (detail.messageId === messageId) {
         const newTool = {
-          id: event.detail.toolCallId,
+          id: detail.toolCallId,
           function: {
-            name: event.detail.toolName,
-            arguments: event.detail.args || "",
+            name: detail.toolName,
+            arguments: detail.args || "",
           },
           type: "function",
-          state: event.detail.state || "streaming",
+          state: detail.state || "streaming",
         };
         setStreamingToolCalls((prev) => {
           if (prev.find((t) => t.id === newTool.id)) return prev;
@@ -75,27 +109,30 @@ export const StreamingMessage = ({
       }
     };
 
-    const handleToolOutput = (event: CustomEvent) => {
-      if (event.detail.messageId === messageId) {
+    const handleToolOutput: EventListener = (event) => {
+      const detail = (event as CustomEvent<StreamingToolOutputDetail>).detail;
+      if (detail.messageId === messageId) {
         setStreamingToolResults((prev) => ({
           ...prev,
-          [event.detail.toolCallId]: event.detail.output,
+          [detail.toolCallId]: detail.output,
         }));
       }
     };
 
-    const handleToolInputUpdate = (event: CustomEvent) => {
-      if (event.detail.messageId === messageId) {
+    const handleToolInputUpdate: EventListener = (event) => {
+      const detail = (event as CustomEvent<StreamingToolInputUpdateDetail>)
+        .detail;
+      if (detail.messageId === messageId) {
         setStreamingToolCalls((prev) => {
           return prev.map((tc) => {
-            if (tc.id === event.detail.toolCallId) {
+            if (tc.id === detail.toolCallId) {
               return {
                 ...tc,
                 function: {
                   ...tc.function,
                   arguments:
-                    event.detail.argsSnapshot ||
-                    tc.function.arguments + event.detail.argsDelta,
+                    detail.argsSnapshot ||
+                    `${tc.function?.arguments || ""}${detail.argsDelta || ""}`,
                 },
               };
             }
@@ -105,39 +142,18 @@ export const StreamingMessage = ({
       }
     };
 
-    window.addEventListener("chat-streaming-content" as any, handleContent);
-    window.addEventListener("chat-streaming-reasoning" as any, handleReasoning);
-    window.addEventListener("chat-streaming-tool-call" as any, handleToolCall);
-    window.addEventListener(
-      "chat-streaming-tool-input-update" as any,
-      handleToolInputUpdate,
-    );
-    window.addEventListener(
-      "chat-streaming-tool-output" as any,
-      handleToolOutput,
-    );
+    window.addEventListener("chat-streaming-content", handleContent);
+    window.addEventListener("chat-streaming-reasoning", handleReasoning);
+    window.addEventListener("chat-streaming-tool-call", handleToolCall);
+    window.addEventListener("chat-streaming-tool-input-update", handleToolInputUpdate);
+    window.addEventListener("chat-streaming-tool-output", handleToolOutput);
 
     return () => {
-      window.removeEventListener(
-        "chat-streaming-content" as any,
-        handleContent,
-      );
-      window.removeEventListener(
-        "chat-streaming-reasoning" as any,
-        handleReasoning,
-      );
-      window.removeEventListener(
-        "chat-streaming-tool-call" as any,
-        handleToolCall,
-      );
-      window.removeEventListener(
-        "chat-streaming-tool-input-update" as any,
-        handleToolInputUpdate,
-      );
-      window.removeEventListener(
-        "chat-streaming-tool-output" as any,
-        handleToolOutput,
-      );
+      window.removeEventListener("chat-streaming-content", handleContent);
+      window.removeEventListener("chat-streaming-reasoning", handleReasoning);
+      window.removeEventListener("chat-streaming-tool-call", handleToolCall);
+      window.removeEventListener("chat-streaming-tool-input-update", handleToolInputUpdate);
+      window.removeEventListener("chat-streaming-tool-output", handleToolOutput);
     };
   }, [messageId, isStreaming]);
 
@@ -178,7 +194,7 @@ export const StreamingMessage = ({
   // Merge tools
   const mergedToolCalls = useMemo(() => {
     const dbTools = toolCalls || [];
-    const dbIds = new Set(dbTools.map((t: any) => t.id));
+    const dbIds = new Set(dbTools.map((t) => t.id));
     const uniqueStreaming = streamingToolCalls.filter((t) => !dbIds.has(t.id));
     return [...dbTools, ...uniqueStreaming];
   }, [toolCalls, streamingToolCalls]);
@@ -357,8 +373,8 @@ const ToolCallRenderer = ({
   toolCall,
   result,
 }: {
-  toolCall: any;
-  result?: any;
+  toolCall: ToolCall;
+  result?: unknown;
 }) => {
   const originalName = toolCall.function?.name || "";
   let name = originalName;
@@ -402,7 +418,13 @@ const ToolCallRenderer = ({
       toolName={name}
       args={args}
       state={toolCall.state}
-      result={result}
+      result={
+        typeof result === "string"
+          ? result
+          : result == null
+            ? undefined
+            : JSON.stringify(result)
+      }
     />
   );
 };

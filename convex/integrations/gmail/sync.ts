@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { internalAction } from "../../_generated/server";
+import { internalAction, type ActionCtx } from "../../_generated/server";
 import { internal } from "../../_generated/api";
+import type { Doc } from "../../_generated/dataModel";
 import {
   assertFunctionArgs,
   incrementalSyncArgsSchema,
@@ -24,6 +25,10 @@ import {
 } from "./api";
 import { extractPurchaseData } from "../extractor";
 import type { GmailMessageFull } from "./types";
+
+type PurchaseDraftDoc = Doc<"purchaseDrafts">;
+
+type MergeDuplicateCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
 
 function splitOrderNumbers(value?: string | null): string[] {
   if (!value) return [];
@@ -56,13 +61,14 @@ function computeMissingFields(opts: {
   return missing;
 }
 
+function getErrorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
+
 async function mergeDuplicateDrafts(
-  ctx: {
-    runQuery: (query: any, args: any) => Promise<any>;
-    runMutation: (mutation: any, args: any) => Promise<any>;
-  },
+  ctx: MergeDuplicateCtx,
   userId: string,
-  primaryDraft: any,
+  primaryDraft: PurchaseDraftDoc,
   orderNumbers: string[],
   hasTracking: boolean,
 ) {
@@ -73,7 +79,7 @@ async function mergeDuplicateDrafts(
     { userId, orderNumbers },
   );
   const duplicates = candidates.filter(
-    (draft: any) => draft._id !== primaryDraft._id,
+    (draft) => draft._id !== primaryDraft._id,
   );
   if (duplicates.length === 0) return;
 
@@ -96,41 +102,40 @@ async function mergeDuplicateDrafts(
     mergedOrder = mergeOrderNumbers(mergedOrder, dup.orderNumber);
   }
 
-  const mergedItemsSummary =
-    primaryDraft.itemsSummary ??
-    duplicates.find((d: any) => d.itemsSummary)?.itemsSummary ??
+  const mergedItemsSummary = primaryDraft.itemsSummary ??
+    duplicates.find((d) => d.itemsSummary)?.itemsSummary ??
     null;
   const mergedValueUsd =
     primaryDraft.valueUsd != null && primaryDraft.valueUsd !== 0
       ? primaryDraft.valueUsd
-      : duplicates.find((d: any) => d.valueUsd != null && d.valueUsd !== 0)
+      : duplicates.find((d) => d.valueUsd != null && d.valueUsd !== 0)
           ?.valueUsd ?? null;
   const mergedCurrency =
     primaryDraft.currency ??
-    duplicates.find((d: any) => d.currency)?.currency ??
+    duplicates.find((d) => d.currency)?.currency ??
     null;
   const mergedOriginalValue =
     primaryDraft.originalValue != null && primaryDraft.originalValue !== 0
       ? primaryDraft.originalValue
       : duplicates.find(
-            (d: any) => d.originalValue != null && d.originalValue !== 0,
+            (d) => d.originalValue != null && d.originalValue !== 0,
           )?.originalValue ?? null;
   const mergedMerchant =
     primaryDraft.merchant && primaryDraft.merchant !== "unknown"
       ? primaryDraft.merchant
       : duplicates.find(
-            (d: any) => d.merchant && d.merchant !== "unknown",
+            (d) => d.merchant && d.merchant !== "unknown",
           )?.merchant;
   const mergedStoreName =
     primaryDraft.storeName ??
-    duplicates.find((d: any) => d.storeName)?.storeName ??
+    duplicates.find((d) => d.storeName)?.storeName ??
     null;
   const mergedInvoicePresent =
     primaryDraft.invoicePresent ||
-    duplicates.some((d: any) => d.invoicePresent);
+    duplicates.some((d) => d.invoicePresent);
   const mergedConfidence = Math.max(
     primaryDraft.confidence ?? 0,
-    ...duplicates.map((d: any) => d.confidence ?? 0),
+    ...duplicates.map((d) => d.confidence ?? 0),
   );
 
   const updates: Record<string, unknown> = {};
@@ -200,7 +205,7 @@ async function mergeDuplicateDrafts(
 
   await ctx.runMutation(internal.integrations.evidence.mergeDrafts, {
     primaryDraftId: primaryDraft._id,
-    duplicateDraftIds: duplicates.map((d: any) => d._id),
+    duplicateDraftIds: duplicates.map((d) => d._id),
   });
 }
 
@@ -618,14 +623,15 @@ export const syncGmail = internalAction({
 
           draftsCreated++;
         }
-      } catch (err: any) {
-        console.error("[Gmail Sync] Extraction failed:", err.message);
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
+        console.error("[Gmail Sync] Extraction failed:", message);
         await ctx.runMutation(
           internal.integrations.evidence.updateEvidenceStatus,
           {
             evidenceId,
             status: "failed" as const,
-            extractionError: err.message,
+            extractionError: message,
           },
         );
         await ctx.runMutation(
@@ -715,7 +721,10 @@ export const incrementalSync = internalAction({
     const messageIds = new Set<string>();
     for (const record of history.history || []) {
       for (const msg of record.messagesAdded || []) {
-        messageIds.add(msg.message.id);
+        const addedMessageId = msg.message?.id;
+        if (addedMessageId) {
+          messageIds.add(addedMessageId);
+        }
       }
     }
 
@@ -989,14 +998,15 @@ export const incrementalSync = internalAction({
           );
           draftsCreated++;
         }
-      } catch (err: any) {
-        console.error("[Gmail Incremental] Extraction failed:", err.message);
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
+        console.error("[Gmail Incremental] Extraction failed:", message);
         await ctx.runMutation(
           internal.integrations.evidence.updateEvidenceStatus,
           {
             evidenceId,
             status: "failed" as const,
-            extractionError: err.message,
+            extractionError: message,
           },
         );
         await ctx.runMutation(
@@ -1073,10 +1083,11 @@ export const renewAllWatches = internalAction({
         console.log(
           `[Gmail Watch] Renewed for user ${conn.userId}, expires ${result.expiration}`,
         );
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
         console.error(
           `[Gmail Watch] Renewal failed for user ${conn.userId}:`,
-          err.message,
+          message,
         );
       }
     }
@@ -1113,10 +1124,11 @@ export const catchupSync = internalAction({
           userId: conn.userId,
           daysBack: 1,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
         console.error(
           `[Gmail Catchup] Failed for user ${conn.userId}:`,
-          err.message,
+          message,
         );
       }
     }

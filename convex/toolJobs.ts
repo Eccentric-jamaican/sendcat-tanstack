@@ -35,6 +35,24 @@ import {
   getToolQueueAlertConfig,
 } from "./lib/reliabilityConfig";
 
+type ToolJobProduct = {
+  id: string;
+  title: string;
+  price: string;
+  image: string;
+  url: string;
+  source: "ebay" | "global";
+  [key: string]: unknown;
+};
+
+type ToolJobStatusCounts = {
+  queued: number;
+  running: number;
+  failed: number;
+  deadLetter: number;
+  completed: number;
+};
+
 type ToolJobResult =
   | {
       kind: "search_web";
@@ -45,13 +63,28 @@ type ToolJobResult =
   | {
       kind: "search_products";
       summary: string;
-      products: any[];
+      products: ToolJobProduct[];
     }
   | {
       kind: "search_global";
       summary: string;
-      products: any[];
+      products: ToolJobProduct[];
     };
+
+export type ToolJobStatsSnapshot = {
+  sampled: number;
+  byStatus: ToolJobStatusCounts;
+  byTool: Record<string, ToolJobStatusCounts>;
+  pressureByTool: Record<
+    string,
+    {
+      queuedUtilization: number;
+      runningUtilization: number;
+    }
+  >;
+  oldestQueuedAgeMs: number;
+  oldestRunningAgeMs: number;
+};
 
 function clampInt(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
@@ -862,7 +895,7 @@ export const getQueueStats = internalQuery({
   args: {
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ToolJobStatsSnapshot> => {
     const config = getToolJobConfig();
     const limit = clampInt(args.limit ?? 5000, 100, 20_000);
     const now = Date.now();

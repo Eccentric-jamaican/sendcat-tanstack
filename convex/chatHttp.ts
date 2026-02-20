@@ -44,6 +44,7 @@ import {
   releaseAdmission,
   type AdmissionTicket,
 } from "./lib/admissionControl";
+import type { OpenRouterMessageContentPart } from "./lib/openRouterTypes";
 
 const TOOLS = [
   {
@@ -486,7 +487,7 @@ export async function chatHandler(
               }
 
               if (m.attachments && m.attachments.length > 0) {
-                const content = [] as any[];
+                const content: OpenRouterMessageContentPart[] = [];
                 const text = m.content ?? "";
                 if (text.trim().length > 0) {
                   content.push({ type: "text", text });

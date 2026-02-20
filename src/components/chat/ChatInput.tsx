@@ -9,7 +9,6 @@ import { fetchOpenRouterModels, type AppModel } from "../../lib/openrouter";
 import { ArrowUp, Paperclip, Globe, X, Brain, StopCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation, useQuery, useConvexAuth } from "convex/react";
-import { convex } from "../../lib/convex";
 import { Id } from "../../../convex/_generated/dataModel";
 import { api } from "../../../convex/_generated/api";
 import { v4 as uuidv4 } from "uuid";
@@ -20,6 +19,7 @@ import { useIsMobile } from "../../hooks/useIsMobile";
 import { toast } from "sonner";
 import { trackEvent } from "../../lib/analytics";
 import { useSelectedModelId } from "../../hooks/useSelectedModelId";
+import type { ReasoningEffort } from "../../types/chat";
 
 export interface ChatInputProps {
   existingThreadId?: string;
@@ -50,7 +50,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       setSelectedModelId(modelId);
     };
 
-    const [reasoningEffort, setReasoningEffort] = useState<string | null>(null);
+    const [reasoningEffort, setReasoningEffort] =
+      useState<ReasoningEffort | null>(null);
     const [searchEnabled, setSearchEnabled] = useState(false);
     const [models, setModels] = useState<AppModel[]>([]);
 
@@ -65,10 +66,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const toggleReasoning = () => {
       // Cycle through effort levels appropriate for the reasoning type
       if (reasoningType === "effort") {
-        const levels = [null, "low", "medium", "high"];
-        const currentIndex = levels.indexOf(reasoningEffort as any);
+        const levels: Array<ReasoningEffort | null> = [
+          null,
+          "low",
+          "medium",
+          "high",
+        ];
+        const currentIndex = levels.indexOf(reasoningEffort);
         const nextIndex = (currentIndex + 1) % levels.length;
-        setReasoningEffort(levels[nextIndex] as any);
+        setReasoningEffort(levels[nextIndex]);
       } else if (reasoningType === "max_tokens") {
         // For max_tokens models, just toggle on/off with a sensible default
         setReasoningEffort(reasoningEffort ? null : "medium");
@@ -289,24 +295,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
       try {
         const currentSessionId = getSessionId();
-        const tokenResult = await (convex as any).getAuthToken?.();
-        let effectiveToken =
-          typeof tokenResult === "string" ? tokenResult : null;
+        if (!currentSessionId) {
+          throw new Error("Missing session ID");
+        }
+        let effectiveToken: string | null = null;
 
-        if (!effectiveToken) {
-          try {
-            const tokenResponse = await fetch("/api/auth/convex/token", {
-              credentials: "include",
-            });
-            if (tokenResponse.ok) {
-              const data = await tokenResponse.json();
-              if (typeof data?.token === "string") {
-                effectiveToken = data.token;
-              }
+        try {
+          const tokenResponse = await fetch("/api/auth/convex/token", {
+            credentials: "include",
+          });
+          if (tokenResponse.ok) {
+            const data = await tokenResponse.json();
+            if (typeof data?.token === "string") {
+              effectiveToken = data.token;
             }
-          } catch (error) {
-            console.warn("[ChatInput] Failed to fetch Convex token", error);
           }
+        } catch (error) {
+          console.warn("[ChatInput] Failed to fetch Convex token", error);
         }
 
         let currentThreadId = threadId;
@@ -329,6 +334,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             to: "/chat/$threadId",
             params: { threadId: currentThreadId },
           });
+        }
+        if (!currentThreadId) {
+          throw new Error("Failed to create thread");
         }
 
         trackEvent("message_send", {

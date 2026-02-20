@@ -9,14 +9,44 @@ export const escapeHtml = (value: string) =>
 export const formatMessageRole = (role: string) =>
   role.charAt(0).toUpperCase() + role.slice(1);
 
-export const formatAttachments = (attachments: any[] | undefined) => {
+type TranscriptAttachment = {
+  name: string;
+  type: string;
+  size: number;
+};
+
+type TranscriptToolCall = {
+  id?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+};
+
+type TranscriptMessage = {
+  role?: string;
+  name?: string;
+  content?: string;
+  toolCallId?: string;
+  attachments?: TranscriptAttachment[];
+  toolCalls?: TranscriptToolCall[];
+};
+
+type TranscriptEntry = TranscriptMessage & {
+  toolOutputs: TranscriptMessage[];
+  isOrphanTool?: boolean;
+};
+
+export const formatAttachments = (
+  attachments: TranscriptAttachment[] | undefined,
+) => {
   if (!attachments || attachments.length === 0) return "";
   return attachments
     .map((att) => `${att.name} (${att.type}, ${Math.round(att.size / 1024)}kb)`)
     .join("\n");
 };
 
-export const formatToolCalls = (toolCalls: any[] | undefined) => {
+export const formatToolCalls = (toolCalls: TranscriptToolCall[] | undefined) => {
   if (!toolCalls || toolCalls.length === 0) return "";
   return toolCalls
     .map(
@@ -26,9 +56,9 @@ export const formatToolCalls = (toolCalls: any[] | undefined) => {
     .join("\n");
 };
 
-export const normalizeTranscriptEntries = (messages: any[]) => {
-  const entries: any[] = [];
-  const assistantByToolCall = new Map<string, any>();
+export const normalizeTranscriptEntries = (messages: TranscriptMessage[]) => {
+  const entries: TranscriptEntry[] = [];
+  const assistantByToolCall = new Map<string, TranscriptEntry>();
 
   messages.forEach((msg) => {
     if (msg.role === "tool") {
@@ -43,11 +73,11 @@ export const normalizeTranscriptEntries = (messages: any[]) => {
       return;
     }
 
-    const entry = { ...msg, toolOutputs: [] as any[] };
+    const entry: TranscriptEntry = { ...msg, toolOutputs: [] };
     entries.push(entry);
 
     if (msg.toolCalls) {
-      msg.toolCalls.forEach((call: any) => {
+      msg.toolCalls.forEach((call) => {
         if (call.id) assistantByToolCall.set(call.id, entry);
       });
     }
@@ -56,7 +86,7 @@ export const normalizeTranscriptEntries = (messages: any[]) => {
   return entries;
 };
 
-const formatToolOutputsText = (toolOutputs: any[]) =>
+const formatToolOutputsText = (toolOutputs: TranscriptMessage[]) =>
   toolOutputs
     .map((tool) => {
       const label = tool.name ? `Tool output (${tool.name})` : "Tool output";
@@ -64,7 +94,7 @@ const formatToolOutputsText = (toolOutputs: any[]) =>
     })
     .join("\n\n");
 
-export const formatTranscriptText = (entries: any[]) =>
+export const formatTranscriptText = (entries: TranscriptEntry[]) =>
   entries
     .map((msg) => {
       const roleLabel =
@@ -92,7 +122,7 @@ export const formatTranscriptText = (entries: any[]) =>
     })
     .join("\n\n---\n\n");
 
-export const formatTranscriptMarkdown = (entries: any[]) =>
+export const formatTranscriptMarkdown = (entries: TranscriptEntry[]) =>
   entries
     .map((msg) => {
       const role =
@@ -112,7 +142,7 @@ export const formatTranscriptMarkdown = (entries: any[]) =>
 
       if (msg.toolOutputs?.length) {
         const outputs = msg.toolOutputs
-          .map((tool: any) => {
+          .map((tool) => {
             const label = tool.name ? `Tool output (${tool.name})` : "Tool output";
             return `> ${label}\n>\n> \`\`\`\n> ${tool.content?.trim() || ""}\n> \`\`\``;
           })

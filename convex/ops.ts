@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { ToolJobStatsSnapshot } from "./toolJobs";
 import {
   getAdmissionControlConfig,
   getBulkheadConfig,
@@ -25,7 +26,7 @@ export const getReliabilitySnapshot = internalQuery({
     minutes: v.optional(v.number()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, args): Promise<any> => {
+  handler: async (ctx, args): Promise<Record<string, unknown>> => {
     const opsDefaults = getOpsSnapshotConfig();
     const windowMinutes = clampInt(
       args.minutes ?? opsDefaults.defaultWindowMinutes,
@@ -163,9 +164,12 @@ export const getReliabilitySnapshot = internalQuery({
         (toolCacheByNamespace[row.namespace] ?? 0) + 1;
     }
 
-    const toolJobStats: any = await ctx.runQuery(internal.toolJobs.getQueueStats, {
-      limit: 5000,
-    });
+    const toolJobStats: ToolJobStatsSnapshot = await ctx.runQuery(
+      internal.toolJobs.getQueueStats,
+      {
+        limit: 5000,
+      },
+    );
     const recentDeadLetters = await ctx.db
       .query("toolJobs")
       .withIndex("by_status_updated", (q) => q.eq("status", "dead_letter"))
