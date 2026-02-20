@@ -269,11 +269,11 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     [threads],
   );
   const pinnedThreads = useMemo(
-    () => threadList.filter((t: any) => t.isPinned),
+    () => threadList.filter((t: SidebarThread) => t.isPinned),
     [threadList],
   );
   const unpinnedThreads = useMemo(
-    () => threadList.filter((t: any) => !t.isPinned),
+    () => threadList.filter((t: SidebarThread) => !t.isPinned),
     [threadList],
   );
 
@@ -346,9 +346,11 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
         });
         if (cancelled) return;
         setShareToken(result.shareToken);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (cancelled) return;
-        setShareError(err?.message || "Unable to create share link.");
+        const message =
+          err instanceof Error ? err.message : "Unable to create share link.";
+        setShareError(message);
       } finally {
         shareRequestRef.current = false;
         if (!cancelled) {
@@ -479,11 +481,12 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     if (!sessionId || shouldSkipQuery) return;
 
     const target =
-      (unpinnedThreads.find((t: any) => t?._id && t._id !== activeThreadId)
-        ?._id as string | undefined) ??
-      (threads.find((t: any) => t?._id && t._id !== activeThreadId)?._id as
-        | string
-        | undefined);
+      unpinnedThreads.find(
+        (t: SidebarThread) => t._id && String(t._id) !== activeThreadId,
+      )?._id ??
+      threads.find(
+        (t: SidebarThread) => t._id && String(t._id) !== activeThreadId,
+      )?._id;
     if (!target) return;
 
     const schedule = (cb: () => void) => {

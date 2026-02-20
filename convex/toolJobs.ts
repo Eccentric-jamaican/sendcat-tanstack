@@ -35,6 +35,24 @@ import {
   getToolQueueAlertConfig,
 } from "./lib/reliabilityConfig";
 
+type ToolJobProduct = {
+  id: string;
+  title: string;
+  price: string;
+  image: string;
+  url: string;
+  source: "ebay" | "global";
+  [key: string]: unknown;
+};
+
+type ToolJobStatusCounts = {
+  queued: number;
+  running: number;
+  failed: number;
+  deadLetter: number;
+  completed: number;
+};
+
 type ToolJobResult =
   | {
       kind: "search_web";
@@ -45,33 +63,18 @@ type ToolJobResult =
   | {
       kind: "search_products";
       summary: string;
-      products: any[];
+      products: ToolJobProduct[];
     }
   | {
       kind: "search_global";
       summary: string;
-      products: any[];
+      products: ToolJobProduct[];
     };
 
 export type ToolJobStatsSnapshot = {
   sampled: number;
-  byStatus: {
-    queued: number;
-    running: number;
-    failed: number;
-    deadLetter: number;
-    completed: number;
-  };
-  byTool: Record<
-    string,
-    {
-      queued: number;
-      running: number;
-      failed: number;
-      deadLetter: number;
-      completed: number;
-    }
-  >;
+  byStatus: ToolJobStatusCounts;
+  byTool: Record<string, ToolJobStatusCounts>;
   pressureByTool: Record<
     string,
     {

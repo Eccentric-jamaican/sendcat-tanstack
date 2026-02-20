@@ -1786,17 +1786,18 @@
   - `npm run reliability:drill -- --quick=true --base-url=https://admired-antelope-676.convex.site`
   - overall: `FAIL` (chat scenario skipped due missing auth pool/token inputs; Gmail webhook p95 exceeded threshold in this run)
   - artifact: `.output/reliability/load-drill-quick-2026-02-20T01-42-47-142Z.json`
-- Enforced chat-path validation (auth pool, end-to-end `/api/chat`):
+- Enforced chat-path smoke / reachability check (auth pool, end-to-end `/api/chat`):
   - `npm run reliability:pool -- --count=1 --app-origin=http://localhost:3000 --convex-url=https://admired-antelope-676.convex.cloud --prefix=activationcheck --seed=20260220`
   - `npm run reliability:drill -- --profile=quick --scenarios=chat_stream_http --chat-auth-pool-file=.output/reliability/chat-auth-pool-activationcheck-20260220-1-1.json --base-url=https://admired-antelope-676.convex.site`
   - overall: `PASS` (`chat_stream_http`, statuses `{"200":3}`, p95 `1593ms`)
   - artifact: `.output/reliability/load-drill-quick-2026-02-20T03-58-03-668Z.json`
+  - note: this is only reachability coverage; concurrent Redis admission behavior is validated in multi-user burst drills (for example `.output/reliability/load-drill-burst-2026-02-19T01-32-21-811Z.json`, which produced admission `429` gating under pressure).
 
 ### Notes
 - Activation and guardrail modes are now live in dev.
 - Production Convex deployment remains unprovisioned in this workspace context (`npx convex env list --prod` returned no vars), so activation is currently dev-only until prod env/setup is completed.
 - Quick drill exception and follow-up:
-  - The failed artifact `.output/reliability/load-drill-quick-2026-02-20T01-42-47-142Z.json` is accepted as dev-only transient because it lacked chat auth inputs and had isolated Gmail webhook p95 variance.
+  - The failed artifact `.output/reliability/load-drill-quick-2026-02-20T01-42-47-142Z.json` is accepted as dev-only transient because it lacked chat auth inputs and had isolated Gmail webhook p95 variance (`2149ms`) vs SLO threshold (`<=1500ms`).
   - Promotion remains blocked until a full quick profile (chat + webhook scenarios) is re-run in candidate/prod-equivalent with auth pool configured and SLOs passing.
   - Owner sign-off: `@Tellahneishe Callum` (dev-only activation accepted; no production promotion based on this artifact).
 - Production prerequisites for `FF_FAIL_CLOSED_ON_REDIS_ERROR=true`:

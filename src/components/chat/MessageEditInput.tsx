@@ -13,15 +13,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
 import { useSelectedModelId } from "../../hooks/useSelectedModelId";
+import type { ReasoningEffort } from "../../types/chat";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type ReasoningEffort = "low" | "medium" | "high";
-
 interface MessageEditInputProps {
-  messageId: string;
+  messageId: Id<"messages">;
   threadId: string;
   initialContent: string;
   initialAttachments?: Array<{
@@ -147,14 +146,14 @@ export function MessageEditInput({
   // We treat it as a Convex thread id here and let backend auth/access checks
   // reject invalid or unauthorized IDs.
   const convexThreadId = threadId as Id<"threads">;
-  const messages = useQuery(api.messages.list, {
-    threadId: convexThreadId,
-    sessionId,
-  });
-  const currentThread = useQuery(api.threads.get, {
-    id: convexThreadId,
-    sessionId: sessionId ?? "",
-  });
+  const messages = useQuery(
+    api.messages.list,
+    sessionId ? { threadId: convexThreadId, sessionId } : "skip",
+  );
+  const currentThread = useQuery(
+    api.threads.get,
+    sessionId ? { id: convexThreadId, sessionId } : "skip",
+  );
   const navigate = useNavigate();
   const createThread = useMutation(api.threads.create);
   const sendMessage = useMutation(api.messages.send);

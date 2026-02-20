@@ -1,10 +1,5 @@
 import { v } from "convex/values";
-import type {
-  FunctionReference,
-  FunctionReturnType,
-  OptionalRestArgs,
-} from "convex/server";
-import { internalAction } from "../../_generated/server";
+import { internalAction, type ActionCtx } from "../../_generated/server";
 import { internal } from "../../_generated/api";
 import type { Doc } from "../../_generated/dataModel";
 import {
@@ -33,18 +28,7 @@ import type { GmailMessageFull } from "./types";
 
 type PurchaseDraftDoc = Doc<"purchaseDrafts">;
 
-type MergeDuplicateCtx = {
-  runQuery: <Query extends FunctionReference<"query", "public" | "internal">>(
-    query: Query,
-    ...args: OptionalRestArgs<Query>
-  ) => Promise<FunctionReturnType<Query>>;
-  runMutation: <
-    Mutation extends FunctionReference<"mutation", "public" | "internal">,
-  >(
-    mutation: Mutation,
-    ...args: OptionalRestArgs<Mutation>
-  ) => Promise<FunctionReturnType<Mutation>>;
-};
+type MergeDuplicateCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
 
 function splitOrderNumbers(value?: string | null): string[] {
   if (!value) return [];
@@ -77,6 +61,10 @@ function computeMissingFields(opts: {
   return missing;
 }
 
+function getErrorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
+
 async function mergeDuplicateDrafts(
   ctx: MergeDuplicateCtx,
   userId: string,
@@ -86,10 +74,10 @@ async function mergeDuplicateDrafts(
 ) {
   if (orderNumbers.length === 0) return;
 
-  const candidates = (await ctx.runQuery(
+  const candidates = await ctx.runQuery(
     internal.integrations.evidence.getDraftsByOrderNumbers,
     { userId, orderNumbers },
-  )) as PurchaseDraftDoc[];
+  );
   const duplicates = candidates.filter(
     (draft) => draft._id !== primaryDraft._id,
   );
@@ -635,14 +623,15 @@ export const syncGmail = internalAction({
 
           draftsCreated++;
         }
-      } catch (err: any) {
-        console.error("[Gmail Sync] Extraction failed:", err.message);
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
+        console.error("[Gmail Sync] Extraction failed:", message);
         await ctx.runMutation(
           internal.integrations.evidence.updateEvidenceStatus,
           {
             evidenceId,
             status: "failed" as const,
-            extractionError: err.message,
+            extractionError: message,
           },
         );
         await ctx.runMutation(
@@ -1009,14 +998,15 @@ export const incrementalSync = internalAction({
           );
           draftsCreated++;
         }
-      } catch (err: any) {
-        console.error("[Gmail Incremental] Extraction failed:", err.message);
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
+        console.error("[Gmail Incremental] Extraction failed:", message);
         await ctx.runMutation(
           internal.integrations.evidence.updateEvidenceStatus,
           {
             evidenceId,
             status: "failed" as const,
-            extractionError: err.message,
+            extractionError: message,
           },
         );
         await ctx.runMutation(
@@ -1093,10 +1083,11 @@ export const renewAllWatches = internalAction({
         console.log(
           `[Gmail Watch] Renewed for user ${conn.userId}, expires ${result.expiration}`,
         );
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
         console.error(
           `[Gmail Watch] Renewal failed for user ${conn.userId}:`,
-          err.message,
+          message,
         );
       }
     }
@@ -1133,10 +1124,11 @@ export const catchupSync = internalAction({
           userId: conn.userId,
           daysBack: 1,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = getErrorMessage(err);
         console.error(
           `[Gmail Catchup] Failed for user ${conn.userId}:`,
-          err.message,
+          message,
         );
       }
     }

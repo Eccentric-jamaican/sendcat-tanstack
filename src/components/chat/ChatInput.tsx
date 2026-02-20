@@ -19,6 +19,7 @@ import { useIsMobile } from "../../hooks/useIsMobile";
 import { toast } from "sonner";
 import { trackEvent } from "../../lib/analytics";
 import { useSelectedModelId } from "../../hooks/useSelectedModelId";
+import type { ReasoningEffort } from "../../types/chat";
 
 export interface ChatInputProps {
   existingThreadId?: string;
@@ -29,8 +30,6 @@ export interface ChatInputProps {
 export interface ChatInputHandle {
   setContentAndSend: (text: string) => void;
 }
-
-type ReasoningEffort = "low" | "medium" | "high";
 
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
   ({ existingThreadId, placeholder, className }, ref) => {
