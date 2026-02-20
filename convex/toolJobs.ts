@@ -53,6 +53,36 @@ type ToolJobResult =
       products: any[];
     };
 
+export type ToolJobStatsSnapshot = {
+  sampled: number;
+  byStatus: {
+    queued: number;
+    running: number;
+    failed: number;
+    deadLetter: number;
+    completed: number;
+  };
+  byTool: Record<
+    string,
+    {
+      queued: number;
+      running: number;
+      failed: number;
+      deadLetter: number;
+      completed: number;
+    }
+  >;
+  pressureByTool: Record<
+    string,
+    {
+      queuedUtilization: number;
+      runningUtilization: number;
+    }
+  >;
+  oldestQueuedAgeMs: number;
+  oldestRunningAgeMs: number;
+};
+
 function clampInt(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(Math.floor(value), max));
@@ -862,7 +892,7 @@ export const getQueueStats = internalQuery({
   args: {
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ToolJobStatsSnapshot> => {
     const config = getToolJobConfig();
     const limit = clampInt(args.limit ?? 5000, 100, 20_000);
     const now = Date.now();

@@ -143,6 +143,9 @@ export function MessageEditInput({
     };
   }, []);
 
+  // Trust boundary: `threadId` is sourced from router params for `/chat/$threadId`.
+  // We treat it as a Convex thread id here and let backend auth/access checks
+  // reject invalid or unauthorized IDs.
   const convexThreadId = threadId as Id<"threads">;
   const messages = useQuery(api.messages.list, {
     threadId: convexThreadId,
@@ -278,7 +281,7 @@ export function MessageEditInput({
 
     try {
       // Find the message index
-      const messageIndex = messages.findIndex((m: any) => m._id === messageId);
+      const messageIndex = messages.findIndex((m) => m._id === messageId);
       if (messageIndex === -1) return;
 
       const messagesToCopy = messages.slice(0, messageIndex); // Copy all messages BEFORE this one
@@ -339,6 +342,8 @@ export function MessageEditInput({
         content: content.trim(),
         role: "user",
         sessionId: effectiveSessionId,
+        // Trust boundary: storage IDs come from Convex `generateUploadUrl` uploads
+        // in this UI flow (or persisted attachments previously created by the app).
         attachments: attachments.map((a) => ({
           storageId: a.storageId as Id<"_storage">,
           type: a.type,

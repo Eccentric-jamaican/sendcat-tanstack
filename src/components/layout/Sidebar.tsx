@@ -2,6 +2,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useCallback,
   useLayoutEffect,
   useMemo,
   type MouseEvent,
@@ -104,6 +105,13 @@ interface SidebarProps {
   isOpen?: boolean;
   onToggle?: (open: boolean) => void;
 }
+
+type SidebarThread = {
+  _id: Id<"threads">;
+  title?: string;
+  isPinned?: boolean;
+  parentThreadId?: Id<"threads">;
+};
 
 type IdleDeadlineLike = {
   didTimeout: boolean;
@@ -431,6 +439,16 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     if (isMobile) setIsOpen(false);
   };
 
+  const openThread = useCallback(
+    (id: Id<"threads">) => {
+      navigate({
+        to: "/chat/$threadId",
+        params: { threadId: id },
+      });
+    },
+    [navigate],
+  );
+
   const prefetchThread = (threadId: string, opts?: { preloadRoute?: boolean }) => {
     if (!threadId) return;
 
@@ -490,7 +508,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId, threads, sessionId, shouldSkipQuery]);
 
-  const handleRename = async (id: any) => {
+  const handleRename = async (id: Id<"threads">) => {
     if (!editingTitle.trim()) {
       setEditingId(null);
       return;
@@ -503,7 +521,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     setEditingId(null);
   };
 
-  const handleDeleteThread = async (id: any) => {
+  const handleDeleteThread = async (id: Id<"threads">) => {
     if (activeThreadId === id) {
       await navigate({ to: "/" });
     }
@@ -723,12 +741,12 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
                 <div className="px-3 py-3 text-[10px] font-bold tracking-[0.05em] text-foreground/40 uppercase opacity-80">
                   Pinned
                 </div>
-                {pinnedThreads.map((thread: any) => (
+                {pinnedThreads.map((thread: SidebarThread) => (
                     <ThreadItem
                       key={thread._id}
                       thread={thread}
                       onPrefetch={prefetchThread}
-                      navigate={navigate}
+                      openThread={openThread}
                       activeThreadId={activeThreadId}
                       editingId={editingId}
                       setEditingId={setEditingId}
@@ -756,7 +774,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
               </div>
             ) : shouldVirtualizeUnpinned ? (
               <div style={{ height: unpinnedTotalHeight, position: "relative" }}>
-                {visibleUnpinned.map((thread: any, idx: number) => {
+                {visibleUnpinned.map((thread: SidebarThread, idx: number) => {
                   const absoluteIndex = startIndex + idx;
                   return (
                     <div
@@ -771,7 +789,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
                       <ThreadItem
                         thread={thread}
                         onPrefetch={prefetchThread}
-                        navigate={navigate}
+                        openThread={openThread}
                         activeThreadId={activeThreadId}
                         editingId={editingId}
                         setEditingId={setEditingId}
@@ -787,12 +805,12 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
                 })}
               </div>
             ) : (
-              unpinnedThreads.map((thread: any) => (
+              unpinnedThreads.map((thread: SidebarThread) => (
                   <ThreadItem
                     key={thread._id}
                     thread={thread}
                     onPrefetch={prefetchThread}
-                    navigate={navigate}
+                    openThread={openThread}
                     activeThreadId={activeThreadId}
                     editingId={editingId}
                     setEditingId={setEditingId}
@@ -1015,10 +1033,28 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   );
 };
 
+type ThreadItemProps = {
+  thread: SidebarThread;
+  onPrefetch?: (threadId: string) => void;
+  openThread: (threadId: Id<"threads">) => void;
+  activeThreadId: string | null;
+  editingId: string | null;
+  setEditingId: (id: string | null) => void;
+  editingTitle: string;
+  setEditingTitle: (title: string) => void;
+  handleRename: (id: Id<"threads">) => Promise<void>;
+  togglePinned: (args: {
+    id: Id<"threads">;
+    sessionId?: string;
+  }) => Promise<unknown>;
+  onDelete: (id: Id<"threads">) => Promise<void>;
+  sessionId: string;
+};
+
 const ThreadItem = ({
   thread,
   onPrefetch,
-  navigate,
+  openThread,
   activeThreadId,
   editingId,
   setEditingId,
@@ -1028,7 +1064,7 @@ const ThreadItem = ({
   togglePinned,
   onDelete,
   sessionId,
-}: any) => {
+}: ThreadItemProps) => {
   const isEditing = editingId === thread._id;
   const isActive = activeThreadId === thread._id;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1314,12 +1350,7 @@ const ThreadItem = ({
       >
         <DropdownMenuTrigger asChild>
           <button
-            onClick={() =>
-              navigate({
-                to: "/chat/$threadId",
-                params: { threadId: thread._id },
-              })
-            }
+            onClick={() => openThread(thread._id)}
             onMouseEnter={() => onPrefetch?.(thread._id)}
             onFocus={() => onPrefetch?.(thread._id)}
             onContextMenu={handleContextMenu}

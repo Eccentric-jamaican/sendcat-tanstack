@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { ToolJobStatsSnapshot } from "./toolJobs";
 import {
   getAdmissionControlConfig,
   getBulkheadConfig,
@@ -19,36 +20,6 @@ import {
 function clampInt(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Math.floor(value)));
 }
-
-type ToolJobStatsSnapshot = {
-  sampled: number;
-  byStatus: {
-    queued: number;
-    running: number;
-    failed: number;
-    deadLetter: number;
-    completed: number;
-  };
-  byTool: Record<
-    string,
-    {
-      queued: number;
-      running: number;
-      failed: number;
-      deadLetter: number;
-      completed: number;
-    }
-  >;
-  pressureByTool: Record<
-    string,
-    {
-      queuedUtilization: number;
-      runningUtilization: number;
-    }
-  >;
-  oldestQueuedAgeMs: number;
-  oldestRunningAgeMs: number;
-};
 
 export const getReliabilitySnapshot = internalQuery({
   args: {
@@ -193,9 +164,12 @@ export const getReliabilitySnapshot = internalQuery({
         (toolCacheByNamespace[row.namespace] ?? 0) + 1;
     }
 
-    const toolJobStats = (await ctx.runQuery(internal.toolJobs.getQueueStats, {
-      limit: 5000,
-    })) as ToolJobStatsSnapshot;
+    const toolJobStats: ToolJobStatsSnapshot = await ctx.runQuery(
+      internal.toolJobs.getQueueStats,
+      {
+        limit: 5000,
+      },
+    );
     const recentDeadLetters = await ctx.db
       .query("toolJobs")
       .withIndex("by_status_updated", (q) => q.eq("status", "dead_letter"))

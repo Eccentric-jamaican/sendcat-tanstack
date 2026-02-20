@@ -1786,7 +1786,29 @@
   - `npm run reliability:drill -- --quick=true --base-url=https://admired-antelope-676.convex.site`
   - overall: `FAIL` (chat scenario skipped due missing auth pool/token inputs; Gmail webhook p95 exceeded threshold in this run)
   - artifact: `.output/reliability/load-drill-quick-2026-02-20T01-42-47-142Z.json`
+- Enforced chat-path validation (auth pool, end-to-end `/api/chat`):
+  - `npm run reliability:pool -- --count=1 --app-origin=http://localhost:3000 --convex-url=https://admired-antelope-676.convex.cloud --prefix=activationcheck --seed=20260220`
+  - `npm run reliability:drill -- --profile=quick --scenarios=chat_stream_http --chat-auth-pool-file=.output/reliability/chat-auth-pool-activationcheck-20260220-1-1.json --base-url=https://admired-antelope-676.convex.site`
+  - overall: `PASS` (`chat_stream_http`, statuses `{"200":3}`, p95 `1593ms`)
+  - artifact: `.output/reliability/load-drill-quick-2026-02-20T03-58-03-668Z.json`
 
 ### Notes
 - Activation and guardrail modes are now live in dev.
 - Production Convex deployment remains unprovisioned in this workspace context (`npx convex env list --prod` returned no vars), so activation is currently dev-only until prod env/setup is completed.
+- Quick drill exception and follow-up:
+  - The failed artifact `.output/reliability/load-drill-quick-2026-02-20T01-42-47-142Z.json` is accepted as dev-only transient because it lacked chat auth inputs and had isolated Gmail webhook p95 variance.
+  - Promotion remains blocked until a full quick profile (chat + webhook scenarios) is re-run in candidate/prod-equivalent with auth pool configured and SLOs passing.
+  - Owner sign-off: `@Tellahneishe Callum` (dev-only activation accepted; no production promotion based on this artifact).
+- Production prerequisites for `FF_FAIL_CLOSED_ON_REDIS_ERROR=true`:
+  - Redis topology: managed HA/replication enabled with automated failover and region-aligned deployment.
+  - Alert thresholds:
+    - Redis connectivity/auth errors > `1%` for `5m` (page on-call).
+    - Admission `redis_unavailable` reason share > `0.5%` for `5m` (page on-call).
+    - `/api/chat` `429` spike + `redis_unavailable` correlation > baseline `2x` for `10m` (incident).
+  - Fallback sequence during Redis outage:
+    1. Set `FF_FAIL_CLOSED_ON_REDIS_ERROR=false`.
+    2. Set `ADMISSION_REDIS_SHADOW_MODE=true`.
+    3. Verify `/api/chat/health` and `ops:getReliabilitySnapshot` recovery.
+    4. Keep fail-open/shadow until Redis health is stable for at least `30m`.
+    5. Re-enable enforce (`ADMISSION_REDIS_SHADOW_MODE=false`) and then fail-closed (`FF_FAIL_CLOSED_ON_REDIS_ERROR=true`) in that order.
+  - Operational reference: `scripts/reliability/RUNBOOK.md` (incident triage, monitoring, escalation, and flag-flip playbook).

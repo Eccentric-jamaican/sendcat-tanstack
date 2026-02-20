@@ -9,7 +9,6 @@ import { fetchOpenRouterModels, type AppModel } from "../../lib/openrouter";
 import { ArrowUp, Paperclip, Globe, X, Brain, StopCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation, useQuery, useConvexAuth } from "convex/react";
-import { convex } from "../../lib/convex";
 import { Id } from "../../../convex/_generated/dataModel";
 import { api } from "../../../convex/_generated/api";
 import { v4 as uuidv4 } from "uuid";
@@ -32,10 +31,6 @@ export interface ChatInputHandle {
 }
 
 type ReasoningEffort = "low" | "medium" | "high";
-
-type ConvexAuthClient = {
-  getAuthToken?: () => Promise<string | null> | string | null;
-};
 
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
   ({ existingThreadId, placeholder, className }, ref) => {
@@ -304,24 +299,20 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
         if (!currentSessionId) {
           throw new Error("Missing session ID");
         }
-        const tokenResult = await (convex as ConvexAuthClient).getAuthToken?.();
-        let effectiveToken =
-          typeof tokenResult === "string" ? tokenResult : null;
+        let effectiveToken: string | null = null;
 
-        if (!effectiveToken) {
-          try {
-            const tokenResponse = await fetch("/api/auth/convex/token", {
-              credentials: "include",
-            });
-            if (tokenResponse.ok) {
-              const data = await tokenResponse.json();
-              if (typeof data?.token === "string") {
-                effectiveToken = data.token;
-              }
+        try {
+          const tokenResponse = await fetch("/api/auth/convex/token", {
+            credentials: "include",
+          });
+          if (tokenResponse.ok) {
+            const data = await tokenResponse.json();
+            if (typeof data?.token === "string") {
+              effectiveToken = data.token;
             }
-          } catch (error) {
-            console.warn("[ChatInput] Failed to fetch Convex token", error);
           }
+        } catch (error) {
+          console.warn("[ChatInput] Failed to fetch Convex token", error);
         }
 
         let currentThreadId = threadId;

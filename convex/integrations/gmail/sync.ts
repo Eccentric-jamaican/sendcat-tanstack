@@ -6,7 +6,7 @@ import type {
 } from "convex/server";
 import { internalAction } from "../../_generated/server";
 import { internal } from "../../_generated/api";
-import type { Doc, Id } from "../../_generated/dataModel";
+import type { Doc } from "../../_generated/dataModel";
 import {
   assertFunctionArgs,
   incrementalSyncArgsSchema,
@@ -216,8 +216,8 @@ async function mergeDuplicateDrafts(
   }
 
   await ctx.runMutation(internal.integrations.evidence.mergeDrafts, {
-    primaryDraftId: primaryDraft._id as Id<"purchaseDrafts">,
-    duplicateDraftIds: duplicates.map((d) => d._id as Id<"purchaseDrafts">),
+    primaryDraftId: primaryDraft._id,
+    duplicateDraftIds: duplicates.map((d) => d._id),
   });
 }
 
