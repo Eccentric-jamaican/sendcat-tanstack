@@ -31,6 +31,12 @@ export interface ChatInputHandle {
   setContentAndSend: (text: string) => void;
 }
 
+type ReasoningEffort = "low" | "medium" | "high";
+
+type ConvexAuthClient = {
+  getAuthToken?: () => Promise<string | null> | string | null;
+};
+
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
   ({ existingThreadId, placeholder, className }, ref) => {
     const navigate = useNavigate();
@@ -50,7 +56,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
       setSelectedModelId(modelId);
     };
 
-    const [reasoningEffort, setReasoningEffort] = useState<string | null>(null);
+    const [reasoningEffort, setReasoningEffort] =
+      useState<ReasoningEffort | null>(null);
     const [searchEnabled, setSearchEnabled] = useState(false);
     const [models, setModels] = useState<AppModel[]>([]);
 
@@ -65,10 +72,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     const toggleReasoning = () => {
       // Cycle through effort levels appropriate for the reasoning type
       if (reasoningType === "effort") {
-        const levels = [null, "low", "medium", "high"];
-        const currentIndex = levels.indexOf(reasoningEffort as any);
+        const levels: Array<ReasoningEffort | null> = [
+          null,
+          "low",
+          "medium",
+          "high",
+        ];
+        const currentIndex = levels.indexOf(reasoningEffort);
         const nextIndex = (currentIndex + 1) % levels.length;
-        setReasoningEffort(levels[nextIndex] as any);
+        setReasoningEffort(levels[nextIndex]);
       } else if (reasoningType === "max_tokens") {
         // For max_tokens models, just toggle on/off with a sensible default
         setReasoningEffort(reasoningEffort ? null : "medium");
@@ -289,7 +301,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 
       try {
         const currentSessionId = getSessionId();
-        const tokenResult = await (convex as any).getAuthToken?.();
+        if (!currentSessionId) {
+          throw new Error("Missing session ID");
+        }
+        const tokenResult = await (convex as ConvexAuthClient).getAuthToken?.();
         let effectiveToken =
           typeof tokenResult === "string" ? tokenResult : null;
 
@@ -329,6 +344,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
             to: "/chat/$threadId",
             params: { threadId: currentThreadId },
           });
+        }
+        if (!currentThreadId) {
+          throw new Error("Failed to create thread");
         }
 
         trackEvent("message_send", {

@@ -1743,3 +1743,50 @@
   - `npm run reliability:milestone-gate -- --milestone=m3_20k --chat-auth-pool-file=.output/reliability/chat-auth-pool-loadtestmulti-20260219a-1-40.json --chat-load-scale=0.005 --chat-concurrency-scale=0.05 --chat-duration-scale=0.003 --chat-rotation-mode=random`
     - command completed and emitted milestone artifact
     - artifact: `.output/reliability/milestone-gate-m3_20k-2026-02-19T11-44-36-650Z.json`
+
+## 2026-02-20 - Full Activation (Dev) of Gateway + Admission + Queue + Failover
+
+### Goal
+- Move reliability controls from mostly shadow/legacy mode into active authoritative/enforce mode on the active Convex dev deployment.
+
+### Implemented
+- Updated Convex dev environment flags on `admired-antelope-676`:
+  - `FF_CHAT_GATEWAY_ENABLED=true`
+  - `FF_CHAT_GATEWAY_SHADOW=false`
+  - `FF_ADMISSION_ENFORCE=true`
+  - `FF_TOOL_QUEUE_ENFORCE=true`
+  - `FF_PROVIDER_FAILOVER_ENABLED=true`
+  - `FF_FAIL_CLOSED_ON_REDIS_ERROR=true`
+  - `ADMISSION_REDIS_SHADOW_MODE=false`
+  - `ADMISSION_ENFORCE_USER_INFLIGHT=true`
+  - `ADMISSION_ENFORCE_GLOBAL_INFLIGHT=true`
+  - `ADMISSION_ENFORCE_GLOBAL_MSG_RATE=true`
+  - `ADMISSION_ENFORCE_GLOBAL_TOOL_RATE=true`
+
+### Validation
+- Reliability snapshot check:
+  - `ops:getReliabilitySnapshot` now reports:
+    - `config.chatGateway.enabled=true`
+    - `config.chatGateway.shadowMode=false`
+    - `config.chatGateway.admissionEnforce=true`
+    - `config.chatGateway.toolQueueEnforce=true`
+    - `config.chatGateway.providerFailoverEnabled=true`
+    - `config.chatGateway.failClosedOnRedisError=true`
+    - `config.admission.shadowMode=false`
+- Health endpoint check:
+  - `GET https://admired-antelope-676.convex.site/api/chat/health`
+  - result:
+    - `mode=authoritative`
+    - `admission.effectiveMode=enforce`
+- Synthetic probes:
+  - `npm run reliability:probe -- --base-url=https://admired-antelope-676.convex.site`
+  - overall: `PASS`
+  - artifact: `.output/reliability/synthetic-probes-2026-02-20T01-42-30-104Z.json`
+- Quick drill:
+  - `npm run reliability:drill -- --quick=true --base-url=https://admired-antelope-676.convex.site`
+  - overall: `FAIL` (chat scenario skipped due missing auth pool/token inputs; Gmail webhook p95 exceeded threshold in this run)
+  - artifact: `.output/reliability/load-drill-quick-2026-02-20T01-42-47-142Z.json`
+
+### Notes
+- Activation and guardrail modes are now live in dev.
+- Production Convex deployment remains unprovisioned in this workspace context (`npx convex env list --prod` returned no vars), so activation is currently dev-only until prod env/setup is completed.

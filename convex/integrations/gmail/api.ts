@@ -1,5 +1,20 @@
 import { decrypt } from "../crypto";
 import { fetchWithRetry } from "../../lib/network";
+import type { GmailMessageFull } from "./types";
+
+export type GmailHistoryResponse = {
+  history?: Array<{
+    id?: string;
+    messagesAdded?: Array<{
+      message?: {
+        id?: string;
+        threadId?: string;
+      };
+    }>;
+  }>;
+  nextPageToken?: string;
+  historyId?: string;
+};
 
 function looksEncrypted(token: string): boolean {
   return token.split(":").length === 3;
@@ -136,7 +151,7 @@ export async function listMessages(
 export async function getMessage(
   accessToken: string,
   messageId: string,
-): Promise<any> {
+): Promise<GmailMessageFull> {
   const res = await fetchWithRetry(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
     {
@@ -184,7 +199,7 @@ export async function getAttachment(
 export async function getHistory(
   accessToken: string,
   startHistoryId: string,
-): Promise<any> {
+): Promise<GmailHistoryResponse> {
   const url = new URL(
     "https://gmail.googleapis.com/gmail/v1/users/me/history",
   );

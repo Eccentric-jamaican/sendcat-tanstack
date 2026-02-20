@@ -39,6 +39,11 @@ import {
   type AdmissionTicket,
 } from "./lib/admissionControl";
 
+type OpenRouterMessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "file"; file: { filename: string; file_data: string } };
+
 const TOOLS = [
   {
     type: "function",
@@ -507,7 +512,7 @@ export const streamAnswer = action({
 
             // Content & Attachments
             if (m.attachments && m.attachments.length > 0) {
-              const content = [] as any[];
+              const content: OpenRouterMessageContentPart[] = [];
               const text = m.content ?? "";
               if (text.trim().length > 0) {
                 content.push({ type: "text", text });

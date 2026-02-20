@@ -20,12 +20,42 @@ function clampInt(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Math.floor(value)));
 }
 
+type ToolJobStatsSnapshot = {
+  sampled: number;
+  byStatus: {
+    queued: number;
+    running: number;
+    failed: number;
+    deadLetter: number;
+    completed: number;
+  };
+  byTool: Record<
+    string,
+    {
+      queued: number;
+      running: number;
+      failed: number;
+      deadLetter: number;
+      completed: number;
+    }
+  >;
+  pressureByTool: Record<
+    string,
+    {
+      queuedUtilization: number;
+      runningUtilization: number;
+    }
+  >;
+  oldestQueuedAgeMs: number;
+  oldestRunningAgeMs: number;
+};
+
 export const getReliabilitySnapshot = internalQuery({
   args: {
     minutes: v.optional(v.number()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, args): Promise<any> => {
+  handler: async (ctx, args): Promise<Record<string, unknown>> => {
     const opsDefaults = getOpsSnapshotConfig();
     const windowMinutes = clampInt(
       args.minutes ?? opsDefaults.defaultWindowMinutes,
@@ -163,9 +193,9 @@ export const getReliabilitySnapshot = internalQuery({
         (toolCacheByNamespace[row.namespace] ?? 0) + 1;
     }
 
-    const toolJobStats: any = await ctx.runQuery(internal.toolJobs.getQueueStats, {
+    const toolJobStats = (await ctx.runQuery(internal.toolJobs.getQueueStats, {
       limit: 5000,
-    });
+    })) as ToolJobStatsSnapshot;
     const recentDeadLetters = await ctx.db
       .query("toolJobs")
       .withIndex("by_status_updated", (q) => q.eq("status", "dead_letter"))

@@ -43,6 +43,7 @@ import { type Product } from "../data/mockProducts";
 import { trackEvent } from "../lib/analytics";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { getSelectedModelId, setSelectedModelId } from "../lib/selectedModel";
+import type { Id } from "../../convex/_generated/dataModel";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -152,6 +153,7 @@ function ChatPage() {
 
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [sessionReady, setSessionReady] = useState(false);
+  const convexThreadId = threadId as Id<"threads">;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -163,7 +165,7 @@ function ChatPage() {
     api.threads.get,
     isConvexAuthLoading || !sessionReady
       ? "skip"
-      : { id: threadId as any, sessionId },
+      : { id: convexThreadId, sessionId },
   );
   const messages = useQuery(
     api.messages.list,
@@ -172,7 +174,7 @@ function ChatPage() {
       thread === undefined ||
       thread === null
       ? "skip"
-      : { threadId: threadId as any, sessionId },
+      : { threadId: convexThreadId, sessionId },
   );
   const createThread = useMutation(api.threads.create);
   const sendMessage = useMutation(api.messages.send);
@@ -181,7 +183,7 @@ function ChatPage() {
   const toolOutputsByCallId = useMemo(() => {
     const map: Record<string, string> = {};
     if (!messages) return map;
-    for (const msg of messages as any[]) {
+    for (const msg of messages) {
       if (msg?.role !== "tool") continue;
       if (!msg.toolCallId) continue;
       if (typeof msg.content !== "string") continue;
@@ -275,17 +277,17 @@ function ChatPage() {
       if (modelId) setSelectedModelId(modelId);
 
       // Determine the correct parent thread ID (avoid unnecessary nesting)
-      let finalParentThreadId = threadId;
+      let finalParentThreadId: Id<"threads"> = convexThreadId;
       if (thread?.parentThreadId) {
         // Simple heuristic for sibling branching
-        finalParentThreadId = thread.parentThreadId as any;
+        finalParentThreadId = thread.parentThreadId;
       }
 
       const newThreadId = await createThread({
         sessionId: branchSessionId,
         modelId: selectedModel,
         title: userMessage.content.slice(0, 40),
-        parentThreadId: finalParentThreadId as any,
+        parentThreadId: finalParentThreadId,
       });
 
       // Copy previous messages to the new thread

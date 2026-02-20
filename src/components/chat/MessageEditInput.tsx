@@ -5,6 +5,7 @@ import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { useMutation, useAction, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { ModelPicker } from "./ModelPicker";
 import { fetchOpenRouterModels, type AppModel } from "../../lib/openrouter";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -16,6 +17,8 @@ import { useSelectedModelId } from "../../hooks/useSelectedModelId";
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+type ReasoningEffort = "low" | "medium" | "high";
 
 interface MessageEditInputProps {
   messageId: string;
@@ -61,7 +64,8 @@ export function MessageEditInput({
   const [selectedModelId, setSelectedModelId] = useSelectedModelId();
 
   const [searchEnabled, setSearchEnabled] = useState(false);
-  const [reasoningEffort, setReasoningEffort] = useState<string | null>(null);
+  const [reasoningEffort, setReasoningEffort] =
+    useState<ReasoningEffort | null>(null);
   const [models, setModels] = useState<AppModel[]>([]);
 
   useEffect(() => {
@@ -71,7 +75,11 @@ export function MessageEditInput({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const savedReasoning = localStorage.getItem("t3_reasoning_effort");
-    if (savedReasoning !== null) {
+    if (
+      savedReasoning === "low" ||
+      savedReasoning === "medium" ||
+      savedReasoning === "high"
+    ) {
       setReasoningEffort(savedReasoning);
     }
   }, []);
@@ -83,7 +91,12 @@ export function MessageEditInput({
   const toggleReasoning = () => {
     // Cycle through effort levels appropriate for the reasoning type
     if (reasoningType === "effort") {
-      const levels: (string | null)[] = [null, "low", "medium", "high"];
+      const levels: Array<ReasoningEffort | null> = [
+        null,
+        "low",
+        "medium",
+        "high",
+      ];
       const currentIndex = levels.indexOf(reasoningEffort);
       const nextIndex = (currentIndex + 1) % levels.length;
       const newEffort = levels[nextIndex];
@@ -130,8 +143,15 @@ export function MessageEditInput({
     };
   }, []);
 
-  const messages = useQuery(api.messages.list, { threadId: threadId as any, sessionId });
-  const currentThread = useQuery(api.threads.get, { id: threadId as any, sessionId: sessionId ?? "" });
+  const convexThreadId = threadId as Id<"threads">;
+  const messages = useQuery(api.messages.list, {
+    threadId: convexThreadId,
+    sessionId,
+  });
+  const currentThread = useQuery(api.threads.get, {
+    id: convexThreadId,
+    sessionId: sessionId ?? "",
+  });
   const navigate = useNavigate();
   const createThread = useMutation(api.threads.create);
   const sendMessage = useMutation(api.messages.send);
@@ -265,13 +285,13 @@ export function MessageEditInput({
       
       // Determine the correct parent thread ID (avoid unnecessary nesting)
       // If we are editing a message that exists in the parent thread, the new branch should be a sibling.
-      let finalParentThreadId = threadId;
+      let finalParentThreadId: Id<"threads"> = convexThreadId;
       if (currentThread?.parentThreadId) {
         // Simple heuristic: if we are editing an' earlier part of the conversation, 
         // we might want a sibling branch.
         // For now, if it's already a branch, we favor sibling branches for clarity unless specified otherwise.
         // t3.chat handles this by making forks flat under the original root usually.
-        finalParentThreadId = currentThread.parentThreadId as any;
+        finalParentThreadId = currentThread.parentThreadId;
       }
 
       // [AGENTIC] Unified Session Ownership
@@ -287,7 +307,7 @@ export function MessageEditInput({
         sessionId: effectiveSessionId,
         modelId: selectedModelId,
         title: content.trim().slice(0, 40),
-        parentThreadId: finalParentThreadId as any,
+        parentThreadId: finalParentThreadId,
       });
 
       // Copy messages before
@@ -298,7 +318,12 @@ export function MessageEditInput({
             content: msg.content,
             role: msg.role,
             sessionId: effectiveSessionId,
-            attachments: msg.attachments?.map((a: any) => ({
+            attachments: msg.attachments?.map((a: {
+              storageId: Id<"_storage">;
+              type: string;
+              name: string;
+              size: number;
+            }) => ({
               storageId: a.storageId,
               type: a.type,
               name: a.name,
@@ -315,7 +340,7 @@ export function MessageEditInput({
         role: "user",
         sessionId: effectiveSessionId,
         attachments: attachments.map((a) => ({
-          storageId: a.storageId as any,
+          storageId: a.storageId as Id<"_storage">,
           type: a.type,
           name: a.name,
           size: a.size,
@@ -336,7 +361,7 @@ export function MessageEditInput({
         reasoningEffort:
           supportsReasoning && reasoningEffort ? reasoningEffort : undefined,
         reasoningType:
-          supportsReasoning && reasoningEffort ? (reasoningType as any) : undefined,
+          supportsReasoning && reasoningEffort ? reasoningType : undefined,
         webSearch: searchEnabled,
       });
     } catch (error) {

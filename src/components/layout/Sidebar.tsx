@@ -105,6 +105,19 @@ interface SidebarProps {
   onToggle?: (open: boolean) => void;
 }
 
+type IdleDeadlineLike = {
+  didTimeout: boolean;
+  timeRemaining: () => number;
+};
+
+type WindowWithIdleCallbacks = Window & {
+  requestIdleCallback?: (
+    callback: (deadline: IdleDeadlineLike) => void,
+    options?: { timeout: number },
+  ) => number;
+  cancelIdleCallback?: (id: number) => void;
+};
+
 export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const navigate = useNavigate();
   const router = useRouter();
@@ -128,7 +141,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
   const prevTrackedUserId = useRef<string | null>(null);
 
   // Track auth transitions to prevent showing stale data from previous user
-  const prevUserIdRef = useRef<string | null>(undefined as any);
+  const prevUserIdRef = useRef<string | null | undefined>(undefined);
   const [isAuthTransitioning, setIsAuthTransitioning] = useState(false);
 
   useEffect(() => {
@@ -320,7 +333,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
         setShareLoading(true);
         setShareError(null);
         const result = await createShareToken({
-          threadId: activeThreadId,
+          threadId: activeThreadId as Id<"threads">,
           sessionId,
         });
         if (cancelled) return;
@@ -426,7 +439,7 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     if ((opts?.preloadRoute ?? true) && !prefetchedThreadRoutesRef.current.has(threadId)) {
       prefetchedThreadRoutesRef.current.add(threadId);
       void router
-        .preloadRoute({ to: "/chat/$threadId", params: { threadId } as any })
+        .preloadRoute({ to: "/chat/$threadId", params: { threadId } })
         .catch(() => {});
     }
 
@@ -456,15 +469,15 @@ export const Sidebar = ({ isOpen: externalOpen, onToggle }: SidebarProps) => {
     if (!target) return;
 
     const schedule = (cb: () => void) => {
-      const w = window as any;
+      const w = window as WindowWithIdleCallbacks;
       if (typeof w.requestIdleCallback === "function") {
-        return w.requestIdleCallback(cb, { timeout: 800 });
+        return w.requestIdleCallback(() => cb(), { timeout: 800 });
       }
       return window.setTimeout(cb, 250);
     };
 
-    const cancel = (id: any) => {
-      const w = window as any;
+    const cancel = (id: number) => {
+      const w = window as WindowWithIdleCallbacks;
       if (typeof w.cancelIdleCallback === "function") {
         w.cancelIdleCallback(id);
         return;
