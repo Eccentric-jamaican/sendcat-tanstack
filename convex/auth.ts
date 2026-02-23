@@ -42,6 +42,16 @@ const SUPPORT_REPLY_TO = "support@mail.sendcat.app";
 const DEFAULT_FROM = "SendCat <no-reply@mail.sendcat.app>";
 const WELCOME_FROM = "SendCat <hi@mail.sendcat.app>";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function hasCredentialPassword(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const password = value.password;
+  return typeof password === "string" && password.length > 0;
+}
+
 const getAppUrl = (): string => {
   if (process.env.APP_URL) {
     return process.env.APP_URL;
@@ -249,19 +259,23 @@ export const createAuth: CreateAuth<DataModel> = (ctx) => {
       enabled: true,
       sendResetPassword: async ({ user, url }) => {
         try {
-          const accounts =
-            (await adapter.findMany({
+          const rawAccount = await ctx.runQuery(
+            components.betterAuth.adapter.findOne,
+            {
               model: "account",
               where: [
                 {
                   field: "userId",
                   value: user.id,
                 },
+                {
+                  field: "providerId",
+                  value: "credential",
+                },
               ],
-            })) ?? [];
-          const hasCredentialAccount = accounts.some(
-            (account) => account.providerId === "credential" && account.password,
+            },
           );
+          const hasCredentialAccount = hasCredentialPassword(rawAccount);
           if (!hasCredentialAccount) {
             if (isDebugMode) {
               console.log(
